@@ -30,6 +30,14 @@ const [loadingFoods, setLoadingFoods] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
 
+  const [currentUser, setCurrentUser] = useState(() => {
+  const savedUser = localStorage.getItem("currentUser")
+
+  return savedUser
+    ? JSON.parse(savedUser)
+    : null
+})
+
   useEffect(() => {
   fetch("http://localhost:18080/api/foods")
     .then((response) => response.json())
@@ -42,6 +50,13 @@ const [loadingFoods, setLoadingFoods] = useState(true)
       setLoadingFoods(false)
     })
 }, [])
+
+const handleLogout = () => {
+  localStorage.removeItem("authToken")
+  localStorage.removeItem("currentUser")
+
+  setCurrentUser(null)
+}
 
   const handleAddToCart = (food) => {
     setCart((currentCart) => {
@@ -120,8 +135,13 @@ const [loadingFoods, setLoadingFoods] = useState(true)
     <div className="min-h-screen bg-gray-100">
 
       <Navbar
-  cartItemCount={cartItemCount}
+  cartItemCount={cart.reduce(
+    (total, item) => total + item.quantity,
+    0
+  )}
   onLogin={() => setAuthMode("login")}
+  currentUser={currentUser}
+  onLogout={handleLogout}
 />
 
       {/* Hero */}
@@ -264,14 +284,15 @@ const [loadingFoods, setLoadingFoods] = useState(true)
             {/* Authentication Modal */}
       {authMode && (
         <AuthModal
-          mode={authMode}
-          onClose={() => setAuthMode(null)}
-          onSwitchMode={() =>
-            setAuthMode(
-              authMode === "login" ? "register" : "login"
-            )
-          }
-        />
+  mode={authMode}
+  onClose={() => setAuthMode(null)}
+  onSwitchMode={() =>
+    setAuthMode(authMode === "login" ? "register" : "login")
+  }
+  onLoginSuccess={(user) => {
+    setCurrentUser(user)
+  }}
+/>
       )}
 
             {/* Checkout Modal */}

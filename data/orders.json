@@ -1,0 +1,24 @@
+[
+    {
+        "address": "Bhubaneswar, Odisha",
+        "id": 1,
+        "items": [
+            {
+                "id": 1,
+                "name": "Chicken Burger",
+                "price": 120,
+                "quantity": 2
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PLACED",
+        "total": 320.0,
+        "userId": 1
+    }
+]
