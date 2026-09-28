@@ -1,0 +1,34 @@
+# Node.js
+node_modules/
+frontend/dist/
+
+# C++ build files
+*.o
+*.out
+*.exe
+
+# Build directories
+build/
+
+# Linux kernel module files
+*.ko
+*.mod
+*.mod.c
+*.symvers
+*.order
+.mod*
+Module.symvers
+
+# Editor files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*~
+
+# Logs
+*.log
+
+# Runtime/generated data
+data/*.tmp
