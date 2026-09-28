@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Navbar from "./components/Navbar"
 import FoodCard from "./components/FoodCard"
 import Cart from "./components/Cart"
@@ -6,48 +6,7 @@ import FoodDetails from "./components/FoodDetails"
 import AuthModal from "./components/AuthModal"
 import Checkout from "./components/Checkout"
 
-const foods = [
-  {
-    id: 1,
-    name: "Chicken Burger",
-    description: "Delicious chicken burger with fresh ingredients.",
-    price: 120,
-    category: "Burger",
-    image: "🍔",
-  },
-  {
-    id: 2,
-    name: "Veg Pizza",
-    description: "Fresh vegetable pizza with delicious toppings.",
-    price: 180,
-    category: "Pizza",
-    image: "🍕",
-  },
-  {
-    id: 3,
-    name: "Italian Pasta",
-    description: "Creamy pasta prepared with fresh ingredients.",
-    price: 150,
-    category: "Pasta",
-    image: "🍝",
-  },
-  {
-    id: 4,
-    name: "French Fries",
-    description: "Crispy golden fries served hot and fresh.",
-    price: 80,
-    category: "Snacks",
-    image: "🍟",
-  },
-  {
-    id: 5,
-    name: "Cold Coffee",
-    description: "Refreshing cold coffee prepared with milk.",
-    price: 70,
-    category: "Drinks",
-    image: "🥤",
-  },
-]
+
 
 const categories = [
   "All",
@@ -64,10 +23,25 @@ function App() {
 const [favorites, setFavorites] = useState([])
 const [authMode, setAuthMode] = useState(null)
 const [showCheckout, setShowCheckout] = useState(false)
+const [foods, setFoods] = useState([])
+const [loadingFoods, setLoadingFoods] = useState(true)
 
   // Search and category state
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
+
+  useEffect(() => {
+  fetch("http://localhost:18080/api/foods")
+    .then((response) => response.json())
+    .then((data) => {
+      setFoods(data)
+      setLoadingFoods(false)
+    })
+    .catch((error) => {
+      console.error("Failed to load foods:", error)
+      setLoadingFoods(false)
+    })
+}, [])
 
   const handleAddToCart = (food) => {
     setCart((currentCart) => {
@@ -217,7 +191,15 @@ const [showCheckout, setShowCheckout] = useState(false)
           Popular Food
         </h2>
 
-        {filteredFoods.length === 0 ? (
+        {loadingFoods && (
+  <div className="bg-white rounded-2xl shadow-md p-8 text-center mb-8">
+    <p className="text-gray-600">
+      Loading food menu...
+    </p>
+  </div>
+)}
+
+        {!loadingFoods && filteredFoods.length === 0 ? (
 
           <div className="bg-white rounded-2xl shadow-md p-10 text-center">
 
