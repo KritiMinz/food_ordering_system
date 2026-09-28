@@ -3,7 +3,8 @@ import Navbar from "./components/Navbar"
 import FoodCard from "./components/FoodCard"
 import Cart from "./components/Cart"
 import FoodDetails from "./components/FoodDetails"
-
+import AuthModal from "./components/AuthModal"
+import Checkout from "./components/Checkout"
 
 const foods = [
   {
@@ -61,6 +62,8 @@ function App() {
   const [cart, setCart] = useState([])
   const [selectedFood, setSelectedFood] = useState(null)
 const [favorites, setFavorites] = useState([])
+const [authMode, setAuthMode] = useState(null)
+const [showCheckout, setShowCheckout] = useState(false)
 
   // Search and category state
   const [searchTerm, setSearchTerm] = useState("")
@@ -142,7 +145,10 @@ const [favorites, setFavorites] = useState([])
   return (
     <div className="min-h-screen bg-gray-100">
 
-      <Navbar cartItemCount={cartItemCount} />
+      <Navbar
+  cartItemCount={cartItemCount}
+  onLogin={() => setAuthMode("login")}
+/>
 
       {/* Hero */}
       <section className="bg-orange-50 py-20">
@@ -252,10 +258,11 @@ const [favorites, setFavorites] = useState([])
       <section className="max-w-4xl mx-auto px-6 pb-20">
 
         <Cart
-          cart={cart}
-          onUpdateQuantity={handleUpdateQuantity}
-          onRemoveItem={handleRemoveItem}
-        />
+  cart={cart}
+  onUpdateQuantity={handleUpdateQuantity}
+  onRemoveItem={handleRemoveItem}
+  onCheckout={() => setShowCheckout(true)}
+/>
 
       </section>
 
@@ -271,6 +278,32 @@ const [favorites, setFavorites] = useState([])
         }
         onToggleFavorite={handleToggleFavorite}
       />
+
+            {/* Authentication Modal */}
+      {authMode && (
+        <AuthModal
+          mode={authMode}
+          onClose={() => setAuthMode(null)}
+          onSwitchMode={() =>
+            setAuthMode(
+              authMode === "login" ? "register" : "login"
+            )
+          }
+        />
+      )}
+
+            {/* Checkout Modal */}
+      {showCheckout && (
+        <Checkout
+          cart={cart}
+          onClose={() => setShowCheckout(false)}
+          onPlaceOrder={() => {
+            alert("Order placed successfully!")
+            setCart([])
+            setShowCheckout(false)
+          }}
+        />
+      )}
 
     </div>
   )

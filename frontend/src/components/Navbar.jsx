@@ -1,4 +1,4 @@
-function Navbar({ cartItemCount }) {
+function Navbar({ cartItemCount, onLogin }) {
   return (
     <nav className="bg-white shadow-md">
 
@@ -33,11 +33,12 @@ function Navbar({ cartItemCount }) {
           </a>
 
           <button
-            className="bg-orange-600 text-white px-5 py-2 rounded-lg
-                       hover:bg-orange-700"
-          >
-            Login
-          </button>
+  onClick={onLogin}
+  className="bg-orange-600 text-white px-5 py-2 rounded-lg
+             hover:bg-orange-700"
+>
+  Login
+</button>
 
         </div>
 

@@ -1,4 +1,9 @@
-function Cart({ cart, onUpdateQuantity, onRemoveItem }) {
+function Cart({
+  cart,
+  onUpdateQuantity,
+  onRemoveItem,
+  onCheckout,
+}) {
   const total = cart.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
@@ -104,11 +109,12 @@ function Cart({ cart, onUpdateQuantity, onRemoveItem }) {
       </div>
 
       <button
-        className="w-full mt-6 bg-orange-600 text-white py-3 rounded-lg
-                   font-semibold hover:bg-orange-700"
-      >
-        Proceed to Checkout
-      </button>
+  onClick={onCheckout}
+  className="w-full mt-6 bg-orange-600 text-white py-3 rounded-lg
+             font-semibold hover:bg-orange-700"
+>
+  Proceed to Checkout
+</button>
 
     </div>
   )
