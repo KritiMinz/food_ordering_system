@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "name": "Chicken Burger",
+    "description": "Delicious chicken burger with fresh ingredients.",
+    "price": 120,
+    "category": "Burger",
+    "image": "🍔"
+  },
+  {
+    "id": 2,
+    "name": "Veg Pizza",
+    "description": "Fresh vegetable pizza with delicious toppings.",
+    "price": 180,
+    "category": "Pizza",
+    "image": "🍕"
+  },
+  {
+    "id": 3,
+    "name": "Italian Pasta",
+    "description": "Creamy pasta prepared with fresh ingredients.",
+    "price": 150,
+    "category": "Pasta",
+    "image": "🍝"
+  },
+  {
+    "id": 4,
+    "name": "French Fries",
+    "description": "Crispy golden fries served hot and fresh.",
+    "price": 80,
+    "category": "Snacks",
+    "image": "🍟"
+  },
+  {
+    "id": 5,
+    "name": "Cold Coffee",
+    "description": "Refreshing cold coffee prepared with milk.",
+    "price": 70,
+    "category": "Drinks",
+    "image": "🥤"
+  }
+]
