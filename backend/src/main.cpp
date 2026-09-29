@@ -12,6 +12,9 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 using json = nlohmann::json;
 
@@ -22,6 +25,36 @@ std::mutex userFileMutex;
 std::mutex sessionMutex;
 
 std::unordered_map<std::string, int> sessions;
+
+// ============================================================
+// Linux IPC - Send order event to logger
+// ============================================================
+
+const char* ORDER_EVENT_PIPE =
+    "/tmp/food_order_events";
+
+void sendOrderEvent(const std::string& event)
+{
+    int fd = open(
+        ORDER_EVENT_PIPE,
+        O_WRONLY | O_NONBLOCK
+    );
+
+    if (fd == -1)
+    {
+        // Logger may not be running.
+        // Do not stop the customer's order because of logging.
+        return;
+    }
+
+    write(
+        fd,
+        event.c_str(),
+        event.size()
+    );
+
+    close(fd);
+}
 
 
 // ============================================================
@@ -225,6 +258,261 @@ int main()
 
         return response;
     });
+
+    // ========================================================
+// ADMIN - ADD FOOD
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/foods")
+    .methods("POST"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        json requestData = json::parse(request.body);
+
+        std::string name =
+            requestData.value("name", "");
+
+        std::string description =
+            requestData.value("description", "");
+
+        std::string category =
+            requestData.value("category", "");
+
+        std::string image =
+            requestData.value("image", "🍽️");
+
+        double price =
+            requestData.value("price", 0.0);
+
+        if (name.empty() ||
+            description.empty() ||
+            category.empty() ||
+            price <= 0)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid food data"})"
+            );
+        }
+
+        std::lock_guard<std::mutex> lock(userFileMutex);
+
+        json foods =
+            loadJsonFile("data/foods.json");
+
+        int newId = 1;
+
+        for (const auto& food : foods)
+        {
+            if (food.contains("id"))
+            {
+                newId =
+                    std::max(
+                        newId,
+                        food["id"].get<int>() + 1
+                    );
+            }
+        }
+
+        json newFood = {
+            {"id", newId},
+            {"name", name},
+            {"description", description},
+            {"price", price},
+            {"category", category},
+            {"image", image}
+        };
+
+        foods.push_back(newFood);
+
+        saveJsonFile(
+            "data/foods.json",
+            foods
+        );
+
+        crow::response response(201);
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        response.write(
+            json({
+                {"status", "success"},
+                {"message", "Food added successfully"},
+                {"food", newFood}
+            }).dump()
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request"})"
+        );
+    }
+});
+
+
+// ========================================================
+// ADMIN - UPDATE FOOD
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/foods/<int>")
+    .methods("PUT"_method)
+([](const crow::request& request, int foodId)
+{
+    try
+    {
+        json requestData =
+            json::parse(request.body);
+
+        std::lock_guard<std::mutex> lock(userFileMutex);
+
+        json foods =
+            loadJsonFile("data/foods.json");
+
+        bool found = false;
+        json updatedFood;
+
+        for (auto& food : foods)
+        {
+            if (
+                food.contains("id") &&
+                food["id"].get<int>() == foodId
+            )
+            {
+                if (requestData.contains("name"))
+                    food["name"] = requestData["name"];
+
+                if (requestData.contains("description"))
+                    food["description"] =
+                        requestData["description"];
+
+                if (requestData.contains("price"))
+                    food["price"] =
+                        requestData["price"];
+
+                if (requestData.contains("category"))
+                    food["category"] =
+                        requestData["category"];
+
+                if (requestData.contains("image"))
+                    food["image"] =
+                        requestData["image"];
+
+                updatedFood = food;
+                found = true;
+
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Food not found"})"
+            );
+        }
+
+        saveJsonFile(
+            "data/foods.json",
+            foods
+        );
+
+        crow::response response(200);
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        response.write(
+            json({
+                {"status", "success"},
+                {"message", "Food updated successfully"},
+                {"food", updatedFood}
+            }).dump()
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request"})"
+        );
+    }
+});
+
+
+// ========================================================
+// ADMIN - DELETE FOOD
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/foods/<int>")
+    .methods("DELETE"_method)
+([](const crow::request&, int foodId)
+{
+    try
+    {
+        std::lock_guard<std::mutex> lock(userFileMutex);
+
+        json foods =
+            loadJsonFile("data/foods.json");
+
+        json updatedFoods =
+            json::array();
+
+        bool found = false;
+
+        for (const auto& food : foods)
+        {
+            if (
+                food.contains("id") &&
+                food["id"].get<int>() == foodId
+            )
+            {
+                found = true;
+                continue;
+            }
+
+            updatedFoods.push_back(food);
+        }
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Food not found"})"
+            );
+        }
+
+        saveJsonFile(
+            "data/foods.json",
+            updatedFoods
+        );
+
+        return crow::response(
+            200,
+            R"({"status":"success","message":"Food deleted successfully"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Failed to delete food"})"
+        );
+    }
+});
 
 
     // ========================================================
@@ -638,16 +926,30 @@ CROW_ROUTE(app, "/api/orders")
             orders.push_back(newOrder);
 
             if (!saveJsonFile(
-                    "data/orders.json",
-                    orders))
-            {
-                return crow::response(
-                    500,
-                    R"({"status":"error","message":"Unable to save order"})"
-                );
-            }
+        "data/orders.json",
+        orders))
+{
+    return crow::response(
+        500,
+        R"({"status":"error","message":"Unable to save order"})"
+    );
+}
 
-            json responseData;
+// ------------------------------------------------------------
+// Linux IPC: notify the event logger
+// ------------------------------------------------------------
+
+std::stringstream eventStream;
+
+eventStream
+    << "ORDER_PLACED"
+    << " | Order ID: " << newOrderId
+    << " | User ID: " << userId
+    << " | Total: " << total;
+
+sendOrderEvent(eventStream.str());
+
+json responseData;
 
             responseData["status"] =
                 "success";
@@ -675,6 +977,280 @@ CROW_ROUTE(app, "/api/orders")
         return crow::response(
             400,
             R"({"status":"error","message":"Invalid order data"})"
+        );
+    }
+});
+
+// ========================================================
+// GET ORDERS FOR CUSTOMER
+// ========================================================
+
+CROW_ROUTE(app, "/api/orders")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        const char* userIdParam =
+            request.url_params.get("userId");
+
+        if (userIdParam == nullptr)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"userId is required"})"
+            );
+        }
+
+        int userId =
+            std::stoi(userIdParam);
+
+        json orders =
+            loadJsonFile("data/orders.json");
+
+        json userOrders =
+            json::array();
+
+        for (const auto& order : orders)
+        {
+            if (
+                order.contains("userId") &&
+                order["userId"].get<int>() == userId
+            )
+            {
+                userOrders.push_back(order);
+            }
+        }
+
+        crow::response response(
+            userOrders.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid user ID"})"
+        );
+    }
+});
+
+
+// ========================================================
+// GET ALL ORDERS FOR ADMIN
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/orders")
+    .methods("GET"_method)
+([]()
+{
+    try
+    {
+        json orders =
+            loadJsonFile("data/orders.json");
+
+        crow::response response(
+            orders.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load orders"})"
+        );
+    }
+});
+
+// ========================================================
+// GET ALL CUSTOMERS FOR ADMIN
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/customers")
+    .methods("GET"_method)
+([]()
+{
+    try
+    {
+        json users =
+            loadJsonFile(USER_FILE);
+
+        json customers =
+            json::array();
+
+        for (const auto& user : users)
+        {
+            // Only return customer accounts
+            if (
+                user.contains("role") &&
+                user["role"] == "customer"
+            )
+            {
+                json customer;
+
+                customer["id"] =
+                    user.value("id", 0);
+
+                customer["name"] =
+                    user.value("name", "");
+
+                customer["phone"] =
+                    user.value("phone", "");
+
+                customer["email"] =
+                    user.value("email", "");
+
+                customer["role"] =
+                    user.value("role", "customer");
+
+                // IMPORTANT:
+                // Password hash is intentionally
+                // NOT included in the response.
+
+                customers.push_back(customer);
+            }
+        }
+
+        crow::response response(
+            customers.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load customers"})"
+        );
+    }
+});
+
+
+// ========================================================
+// UPDATE ORDER STATUS
+// ========================================================
+
+CROW_ROUTE(app, "/api/orders/<int>/status")
+    .methods("PUT"_method)
+([](const crow::request& request, int orderId)
+{
+    try
+    {
+        json requestData =
+            json::parse(request.body);
+
+        std::string newStatus =
+            requestData.value("status", "");
+
+        const std::vector<std::string> validStatuses = {
+            "PLACED",
+            "CONFIRMED",
+            "PREPARING",
+            "READY",
+            "OUT_FOR_DELIVERY",
+            "DELIVERED",
+            "CANCELLED"
+        };
+
+        bool validStatus = false;
+
+        for (const auto& status : validStatuses)
+        {
+            if (status == newStatus)
+            {
+                validStatus = true;
+                break;
+            }
+        }
+
+        if (!validStatus)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid order status"})"
+            );
+        }
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json orders =
+            loadJsonFile("data/orders.json");
+
+        for (auto& order : orders)
+        {
+            if (
+                order.contains("id") &&
+                order["id"].get<int>() == orderId
+            )
+            {
+                order["status"] = newStatus;
+
+                if (!saveJsonFile(
+                        "data/orders.json",
+                        orders))
+                {
+                    return crow::response(
+                        500,
+                        R"({"status":"error","message":"Unable to save order"})"
+                    );
+                }
+
+                json responseData;
+
+                responseData["status"] =
+                    "success";
+
+                responseData["message"] =
+                    "Order status updated";
+
+                responseData["order"] =
+                    order;
+
+                crow::response response(
+                    responseData.dump()
+                );
+
+                response.set_header(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                return response;
+            }
+        }
+
+        return crow::response(
+            404,
+            R"({"status":"error","message":"Order not found"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request"})"
         );
     }
 });

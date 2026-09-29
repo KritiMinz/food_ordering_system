@@ -32,3 +32,6 @@ Module.symvers
 
 # Runtime/generated data
 data/*.tmp
+
+# Runtime order logs
+data/order_log.txt
