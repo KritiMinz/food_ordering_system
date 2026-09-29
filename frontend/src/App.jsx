@@ -6,6 +6,7 @@ import FoodDetails from "./components/FoodDetails"
 import AuthModal from "./components/AuthModal"
 import Checkout from "./components/Checkout"
 import Orders from "./components/Orders"
+import AdminDashboard from "./components/AdminDashboard"
 
 const categories = [
   "All",
@@ -238,6 +239,15 @@ function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
       />
+
+      {currentUser?.role === "admin" ? (
+  <AdminDashboard
+    currentUser={currentUser}
+    onLogout={handleLogout}
+  />
+) : (
+
+  <>
 
 
       {/* ==============================
@@ -569,9 +579,10 @@ function App() {
         />
 
       )}
+      </>
+)}
 
     </div>
-  )
-}
+  )}
 
 export default App

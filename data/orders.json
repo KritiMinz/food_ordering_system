@@ -17,6 +17,50 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
+        "status": "READY",
+        "total": 320.0,
+        "userId": 1
+    },
+    {
+        "address": "Bhubaneswar, Odisha",
+        "id": 2,
+        "items": [
+            {
+                "id": 1,
+                "name": "Chicken Burger",
+                "price": 120,
+                "quantity": 2
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PLACED",
+        "total": 320.0,
+        "userId": 1
+    },
+    {
+        "address": "Bhubaneswar, Odisha",
+        "id": 3,
+        "items": [
+            {
+                "id": 1,
+                "name": "Chicken Burger",
+                "price": 120,
+                "quantity": 2
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
         "status": "PLACED",
         "total": 320.0,
         "userId": 1

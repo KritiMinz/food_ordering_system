@@ -42,16 +42,33 @@ void sendOrderEvent(const std::string& event)
 
     if (fd == -1)
     {
-        // Logger may not be running.
-        // Do not stop the customer's order because of logging.
+        std::cerr
+            << "[IPC] Logger is not running. "
+            << "Order event was not logged."
+            << std::endl;
+
         return;
     }
 
-    write(
+    ssize_t bytes_written = write(
         fd,
         event.c_str(),
         event.size()
     );
+
+    if (bytes_written == -1)
+    {
+        std::cerr
+            << "[IPC] Failed to send order event."
+            << std::endl;
+    }
+    else
+    {
+        std::cout
+            << "[IPC] Order event sent: "
+            << event
+            << std::endl;
+    }
 
     close(fd);
 }

@@ -35,3 +35,22 @@ data/*.tmp
 
 # Runtime order logs
 data/order_log.txt
+
+# Compiled Linux demo binaries
+system/processes/process_demo
+system/threads/thread_demo
+system/ipc/ipc_demo
+system/ipc/event_sender
+system/ipc/order_logger
+system/signals/signal_demo
+system/file_io/file_io_demo
+
+# Linux kernel module build artifacts
+driver/*.o
+driver/*.ko
+driver/*.mod
+driver/*.mod.c
+driver/*.symvers
+driver/*.order
+driver/.*.cmd
+driver/.tmp_versions/
