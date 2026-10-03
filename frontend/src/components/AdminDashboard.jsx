@@ -673,6 +673,17 @@ const updateFoodAvailability = async (foodId, available) => {
             </a>
 
             <button
+  onClick={() =>
+    document
+      .getElementById("admin-profile")
+      ?.scrollIntoView({ behavior: "smooth" })
+  }
+  className="text-gray-700 hover:text-orange-600 font-medium"
+>
+  👤 Profile
+</button>
+
+            <button
               onClick={onLogout}
               className="bg-red-500 text-white px-4 py-2 rounded-lg
                          hover:bg-red-600"
@@ -1795,6 +1806,61 @@ const updateFoodAvailability = async (foodId, available) => {
 
   </div>
 
+</section>
+
+<section
+  id="admin-profile"
+  className="max-w-7xl mx-auto px-6 py-12"
+>
+  <div className="bg-white rounded-2xl shadow-md p-8">
+    <h2 className="text-2xl font-bold text-gray-800 mb-6">
+      👤 Admin Profile
+    </h2>
+
+    <div className="grid md:grid-cols-2 gap-6">
+
+      <div>
+        <p className="text-sm text-gray-500">
+          Name
+        </p>
+
+        <p className="text-lg font-semibold text-gray-800">
+          {currentUser?.name || "Admin"}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm text-gray-500">
+          Email
+        </p>
+
+        <p className="text-lg font-semibold text-gray-800">
+          {currentUser?.email || "Not available"}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm text-gray-500">
+          Phone
+        </p>
+
+        <p className="text-lg font-semibold text-gray-800">
+          {currentUser?.phone || "Not available"}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm text-gray-500">
+          Role
+        </p>
+
+        <p className="text-lg font-semibold text-orange-600 capitalize">
+          {currentUser?.role || "admin"}
+        </p>
+      </div>
+
+    </div>
+  </div>
 </section>
 
       {/* =====================================================
