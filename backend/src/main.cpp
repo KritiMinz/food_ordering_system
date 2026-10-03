@@ -3173,6 +3173,43 @@ newOrder["couponCode"] = couponCode;
 newOrder["discount"] = discount;
 newOrder["total"] = total;
 
+// -----------------------------
+// Payment state
+// -----------------------------
+
+bool isOnlinePayment =
+    paymentMethod == "Card" ||
+    paymentMethod == "UPI" ||
+    paymentMethod == "Wallet";
+
+newOrder["paymentStatus"] =
+    isOnlinePayment ? "PAID" : "PENDING";
+
+newOrder["earningsRecorded"] =
+    isOnlinePayment;
+
+    if (isOnlinePayment)
+{
+    json earnings =
+        loadJsonFile("data/earnings.json");
+
+    double currentEarnings =
+        earnings.value("totalEarnings", 0.0);
+
+    earnings["totalEarnings"] =
+        currentEarnings + total;
+
+    if (!saveJsonFile(
+            "data/earnings.json",
+            earnings))
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to update admin earnings"})"
+        );
+    }
+}
+
 newOrder["status"] = "PLACED";
 
             orders.push_back(newOrder);
@@ -3391,6 +3428,62 @@ CROW_ROUTE(app, "/api/admin/orders")
         return crow::response(
             500,
             R"({"status":"error","message":"Unable to load orders"})"
+        );
+    }
+});
+
+// ========================================================
+// GET ADMIN EARNINGS
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/earnings")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        int authenticatedUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                authenticatedUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin access required"})"
+            );
+        }
+
+        json earnings =
+            loadJsonFile("data/earnings.json");
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["totalEarnings"] =
+            earnings.value(
+                "totalEarnings",
+                0.0
+            );
+
+        crow::response response(
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load earnings"})"
         );
     }
 });
@@ -3648,7 +3741,6 @@ sendOrderEvent(eventStream.str());
     }
 });
 
-
 // ========================================================
 // UPDATE ORDER STATUS
 // ========================================================
@@ -3708,7 +3800,121 @@ CROW_ROUTE(app, "/api/orders/<int>/status")
                 order["id"].get<int>() == orderId
             )
             {
-                order["status"] = newStatus;
+                // ------------------------------------------------
+                // Get payment information
+                // ------------------------------------------------
+
+                std::string paymentMethod =
+                    order.value("paymentMethod", "");
+
+                bool earningsRecorded =
+                    order.value(
+                        "earningsRecorded",
+                        false
+                    );
+
+                double orderTotal =
+                    order.value("total", 0.0);
+
+                // ------------------------------------------------
+                // CASH ON DELIVERY
+                // Earnings are recorded only after delivery
+                // ------------------------------------------------
+
+                if (
+                    newStatus == "DELIVERED" &&
+                    paymentMethod == "Cash on Delivery" &&
+                    !earningsRecorded
+                )
+                {
+                    json earnings =
+                        loadJsonFile(
+                            "data/earnings.json"
+                        );
+
+                    double currentEarnings =
+                        earnings.value(
+                            "totalEarnings",
+                            0.0
+                        );
+
+                    earnings["totalEarnings"] =
+                        currentEarnings + orderTotal;
+
+                    if (!saveJsonFile(
+                            "data/earnings.json",
+                            earnings))
+                    {
+                        return crow::response(
+                            500,
+                            R"({"status":"error","message":"Unable to update admin earnings"})"
+                        );
+                    }
+
+                    order["paymentStatus"] =
+                        "PAID";
+
+                    order["earningsRecorded"] =
+                        true;
+                }
+
+                // ------------------------------------------------
+                // ONLINE PAYMENT
+                // Card / UPI / Wallet
+                //
+                // Normally these are already recorded when the
+                // order is created.
+                // This block protects against older orders that
+                // don't have earningsRecorded yet.
+                // ------------------------------------------------
+
+                if (
+                    newStatus == "PLACED" &&
+                    paymentMethod != "Cash on Delivery" &&
+                    !earningsRecorded
+                )
+                {
+                    json earnings =
+                        loadJsonFile(
+                            "data/earnings.json"
+                        );
+
+                    double currentEarnings =
+                        earnings.value(
+                            "totalEarnings",
+                            0.0
+                        );
+
+                    earnings["totalEarnings"] =
+                        currentEarnings + orderTotal;
+
+                    if (!saveJsonFile(
+                            "data/earnings.json",
+                            earnings))
+                    {
+                        return crow::response(
+                            500,
+                            R"({"status":"error","message":"Unable to update admin earnings"})"
+                        );
+                    }
+
+                    order["paymentStatus"] =
+                        "PAID";
+
+                    order["earningsRecorded"] =
+                        true;
+                }
+
+                // ------------------------------------------------
+                // Update order status
+                // ------------------------------------------------
+
+                order["status"] =
+                    newStatus;
+
+                // ------------------------------------------------
+                // Save updated order
+                // ------------------------------------------------
 
                 if (!saveJsonFile(
                         "data/orders.json",
@@ -3719,6 +3925,10 @@ CROW_ROUTE(app, "/api/orders/<int>/status")
                         R"({"status":"error","message":"Unable to save order"})"
                     );
                 }
+
+                // ------------------------------------------------
+                // Response
+                // ------------------------------------------------
 
                 json responseData;
 
@@ -3743,6 +3953,10 @@ CROW_ROUTE(app, "/api/orders/<int>/status")
                 return response;
             }
         }
+
+        // ------------------------------------------------
+        // Order not found
+        // ------------------------------------------------
 
         return crow::response(
             404,

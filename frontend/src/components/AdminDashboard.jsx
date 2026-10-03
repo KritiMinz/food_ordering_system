@@ -22,6 +22,8 @@ const [couponForm, setCouponForm] = useState({
 
   const [orders, setOrders] = useState([])
   const [loadingOrders, setLoadingOrders] = useState(false)
+  const [totalEarnings, setTotalEarnings] = useState(0)
+const [loadingEarnings, setLoadingEarnings] = useState(false)
 
   const [customers, setCustomers] = useState([])
   const [loadingCustomers, setLoadingCustomers] = useState(false)
@@ -91,6 +93,43 @@ const [couponForm, setCouponForm] = useState({
     setError(error.message)
   } finally {
     setLoadingOrders(false)
+  }
+}
+
+// ========================================================
+// LOAD ADMIN EARNINGS
+// ========================================================
+
+const loadEarnings = async () => {
+  try {
+    setLoadingEarnings(true)
+
+    const token = localStorage.getItem("authToken")
+
+    const response = await fetch(
+      "http://localhost:18080/api/admin/earnings",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to load earnings"
+      )
+    }
+
+    setTotalEarnings(
+      Number(data.totalEarnings || 0)
+    )
+  } catch (error) {
+    setError(error.message)
+  } finally {
+    setLoadingEarnings(false)
   }
 }
 
@@ -336,6 +375,7 @@ const toggleCouponStatus = async (coupon) => {
   loadOrders()
   loadCustomers()
   loadCoupons()
+  loadEarnings()
 }, [])
 
     // ========================================================
@@ -348,11 +388,7 @@ const toggleCouponStatus = async (coupon) => {
 
   const totalOrders = orders.length
 
-  const totalRevenue = orders.reduce(
-    (total, order) =>
-      total + Number(order.total || 0),
-    0
-  )
+  
 
   // ========================================================
   // RESET FORM
@@ -786,7 +822,7 @@ const updateFoodAvailability = async (foodId, available) => {
               </p>
 
               <p className="text-3xl font-bold text-gray-800 mt-2">
-                ₹{totalRevenue.toLocaleString("en-IN")}
+                ₹{totalEarnings.toLocaleString("en-IN")}
               </p>
             </div>
 
