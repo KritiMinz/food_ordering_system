@@ -10,5 +10,11 @@
         "id": 2,
         "label": "SOA University",
         "userId": 1
+    },
+    {
+        "address": "Ranchi, Jharkhand",
+        "id": 3,
+        "label": "Silver Springs Appartment",
+        "userId": 4
     }
 ]

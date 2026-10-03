@@ -1,6 +1,6 @@
 [
     {
-        "active": false,
+        "active": true,
         "code": "WELCOME10",
         "discountType": "percentage",
         "discountValue": 10.0,
@@ -8,11 +8,19 @@
         "minimumOrder": 200.0
     },
     {
-        "active": true,
+        "active": false,
         "code": "SAVE30",
         "discountType": "percentage",
         "discountValue": 30.0,
         "id": 2,
         "minimumOrder": 500.0
+    },
+    {
+        "active": true,
+        "code": "SWEET50",
+        "discountType": "fixed",
+        "discountValue": 50.0,
+        "id": 3,
+        "minimumOrder": 100.0
     }
 ]

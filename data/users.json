@@ -22,5 +22,13 @@
         "password": "0ead2060b65992dca4769af601a1b3a35ef38cfad2c2c465bb160ea764157c5d",
         "phone": "9876543210",
         "role": "customer"
+    },
+    {
+        "email": "demo1@example.com",
+        "id": 4,
+        "name": "demo1",
+        "password": "439c4cf867e3fc35cb4279d6a9911487263cf5534624ae614a3c97ebba6c32f4",
+        "phone": "9998887776",
+        "role": "customer"
     }
 ]

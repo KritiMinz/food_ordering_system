@@ -25,6 +25,7 @@
         "price": 150
     },
     {
+        "available": false,
         "category": "Snacks",
         "description": "Crispy golden fries served hot and fresh.",
         "id": 4,
@@ -33,7 +34,7 @@
         "price": 80
     },
     {
-        "available": false,
+        "available": true,
         "category": "Drinks",
         "description": "Refreshing cold coffee prepared with milk.",
         "id": 5,

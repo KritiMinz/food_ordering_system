@@ -377,5 +377,32 @@
         "subtotal": 70.0,
         "total": 70.0,
         "userId": 3
+    },
+    {
+        "address": "Ranchi, Jharkhand",
+        "couponCode": "",
+        "discount": 0.0,
+        "earningsRecorded": true,
+        "id": 18,
+        "items": [
+            {
+                "id": 1,
+                "name": "Chicken Burger",
+                "price": 120,
+                "quantity": 2
+            },
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 2
+            }
+        ],
+        "paymentMethod": "Wallet",
+        "paymentStatus": "PAID",
+        "status": "PREPARING",
+        "subtotal": 600.0,
+        "total": 600.0,
+        "userId": 4
     }
 ]
