@@ -8,6 +8,7 @@ import Checkout from "./components/Checkout"
 import Orders from "./components/Orders"
 import AdminDashboard from "./components/AdminDashboard"
 import Profile from "./components/Profile"
+import Favorites from "./components/Favorites"
 
 const categories = [
   "All",
@@ -54,6 +55,7 @@ function App() {
   const [orderSuccess, setOrderSuccess] = useState(null)
 
   const [showProfile, setShowProfile] = useState(false)
+  const [showFavorites, setShowFavorites] = useState(false)
   
 
   // ==============================
@@ -78,6 +80,52 @@ function App() {
         setLoadingFoods(false)
       })
   }, [])
+
+
+  // ==============================
+// LOAD CUSTOMER FAVORITES
+// ==============================
+
+const loadFavorites = async () => {
+  if (!currentUser || currentUser.role !== "customer") {
+    setFavorites([])
+    return
+  }
+
+  try {
+    const token = localStorage.getItem("authToken")
+
+    const response = await fetch(
+      "http://localhost:18080/api/favorites",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to load favorites"
+      )
+    }
+
+    setFavorites(
+      data.map((favorite) => favorite.foodId)
+    )
+  } catch (error) {
+    console.error(
+      "Failed to load favorites:",
+      error
+    )
+  }
+}
+
+useEffect(() => {
+  loadFavorites()
+}, [currentUser])
 
 
   // ==============================
@@ -179,9 +227,56 @@ function App() {
   // FAVORITES
   // ==============================
 
-  const handleToggleFavorite = (foodId) => {
+ const handleToggleFavorite = async (foodId) => {
+  if (!currentUser || currentUser.role !== "customer") {
+    return
+  }
+
+  const token = localStorage.getItem("authToken")
+
+  const isFavorite =
+    favorites.includes(foodId)
+
+  try {
+    let response
+
+    if (isFavorite) {
+      response = await fetch(
+        `http://localhost:18080/api/favorites/${foodId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      )
+    } else {
+      response = await fetch(
+        "http://localhost:18080/api/favorites",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            foodId,
+          }),
+        }
+      )
+    }
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+        "Failed to update favorite"
+      )
+    }
+
     setFavorites((currentFavorites) => {
-      if (currentFavorites.includes(foodId)) {
+      if (isFavorite) {
         return currentFavorites.filter(
           (id) => id !== foodId
         )
@@ -192,8 +287,14 @@ function App() {
         foodId,
       ]
     })
-  }
 
+  } catch (error) {
+    console.error(
+      "Favorite update failed:",
+      error
+    )
+  }
+}
 
   // ==============================
   // CART ITEM COUNT
@@ -223,6 +324,10 @@ function App() {
       matchesCategory
     )
   })
+
+  const favoriteFoods = foods.filter((food) =>
+  favorites.includes(food.id)
+)
 
 
   // ==============================
@@ -380,6 +485,56 @@ onProfile={() => setShowProfile(true)}
           )}
 
 
+          {/* ==============================
+    FAVORITES
+============================== */}
+
+{currentUser?.role === "customer" && (
+  <section className="mb-12">
+
+    <div className="flex items-center justify-between mb-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-800">
+          ❤️ My Favorites
+        </h2>
+
+        <p className="text-gray-500 mt-1">
+          Foods you have liked
+        </p>
+      </div>
+    </div>
+
+    {favoriteFoods.length === 0 ? (
+      <div className="bg-white rounded-2xl shadow-md p-8 text-center">
+        <p className="text-gray-500">
+          You haven't added any favorite foods yet.
+        </p>
+      </div>
+    ) : (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+        {favoriteFoods.map((food) => (
+
+          <FoodCard
+            key={food.id}
+            food={food}
+            onAddToCart={handleAddToCart}
+            onViewDetails={() =>
+              setSelectedFood(food)
+            }
+            isFavorite={true}
+            onToggleFavorite={handleToggleFavorite}
+          />
+
+        ))}
+
+      </div>
+    )}
+
+  </section>
+)}
+
+
         {/* FOOD CARDS */}
 
         {!loadingFoods &&
@@ -390,13 +545,24 @@ onProfile={() => setShowProfile(true)}
               {filteredFoods.map((food) => (
 
                 <FoodCard
-                  key={food.id}
-                  food={food}
-                  onAddToCart={handleAddToCart}
-                  onViewDetails={() =>
-                    setSelectedFood(food)
-                  }
-                />
+  key={food.id}
+
+  food={food}
+
+  onAddToCart={handleAddToCart}
+
+  onViewDetails={() =>
+    setSelectedFood(food)
+  }
+
+  isFavorite={
+    favorites.includes(food.id)
+  }
+
+  onToggleFavorite={
+    handleToggleFavorite
+  }
+/>
 
               ))}
 

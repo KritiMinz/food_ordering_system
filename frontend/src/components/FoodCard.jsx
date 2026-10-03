@@ -1,4 +1,10 @@
-function FoodCard({ food, onAddToCart, onViewDetails }) {
+function FoodCard({
+  food,
+  onAddToCart,
+  onViewDetails,
+  isFavorite,
+  onToggleFavorite,
+}) {
   const isAvailable = food.available !== false
 
   return (
@@ -8,22 +14,57 @@ function FoodCard({ food, onAddToCart, onViewDetails }) {
       }`}
     >
 
-      {/* Food Image */}
+      {/* Food Image + Favorite Button */}
 
       <div
-        className={`h-48 flex items-center justify-center text-7xl ${
+        className={`h-48 flex items-center justify-center text-7xl relative ${
           isAvailable
             ? "bg-orange-100"
             : "bg-gray-200"
         }`}
       >
         {food.image}
+
+        {/* Favorite */}
+
+        <button
+          onClick={() => onToggleFavorite(food.id)}
+          className={`absolute top-3 right-3 w-11 h-11 rounded-full
+                      flex items-center justify-center text-2xl
+                      shadow-md transition
+                      ${
+                        isFavorite
+                          ? "bg-red-100 text-red-600"
+                          : "bg-white text-gray-400 hover:text-red-500"
+                      }`}
+          title={
+            isFavorite
+              ? "Remove from favorites"
+              : "Add to favorites"
+          }
+        >
+          {isFavorite ? "❤️" : "♡"}
+        </button>
       </div>
 
 
       {/* Food Information */}
 
       <div className="p-6">
+
+        <div className="flex justify-end mb-2">
+  <button
+    onClick={() => onToggleFavorite(food.id)}
+    className="text-2xl"
+    title={
+      isFavorite
+        ? "Remove from favorites"
+        : "Add to favorites"
+    }
+  >
+    {isFavorite ? "❤️" : "🤍"}
+  </button>
+</div>
 
         <h3 className="text-xl font-bold text-gray-800">
           {food.name}
@@ -50,7 +91,7 @@ function FoodCard({ food, onAddToCart, onViewDetails }) {
             <span
               className="inline-block px-3 py-1 rounded-full
                          bg-red-100 text-red-700
-                         text-red-700 text-sm font-semibold"
+                         text-sm font-semibold"
             >
               ❌ Currently unavailable
             </span>

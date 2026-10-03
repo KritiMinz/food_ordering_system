@@ -4576,10 +4576,267 @@ CROW_ROUTE(app, "/api/reviews/<int>")
         << "====================================\n"
         << "Server running on http://localhost:18080\n";
 
+    // ========================================================
+// CUSTOMER FAVORITES
+// ========================================================
 
-    app.port(18080)
-       .multithreaded()
-       .run();
+
+// GET CUSTOMER FAVORITES
+CROW_ROUTE(app, "/api/favorites")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        json favorites =
+            loadJsonFile("data/favorites.json");
+
+        json userFavorites =
+            json::array();
+
+        for (const auto& favorite : favorites)
+        {
+            if (
+                favorite.value("userId", 0) ==
+                authenticatedUserId
+            )
+            {
+                userFavorites.push_back(
+                    favorite
+                );
+            }
+        }
+
+        crow::response response(
+            userFavorites.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load favorites"})"
+        );
+    }
+});
+
+
+// ADD FAVORITE
+CROW_ROUTE(app, "/api/favorites")
+    .methods("POST"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        json requestData =
+            json::parse(request.body);
+
+        int foodId =
+            requestData.value("foodId", 0);
+
+        if (foodId <= 0)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid food ID"})"
+            );
+        }
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json favorites =
+            loadJsonFile("data/favorites.json");
+
+        // Check if already exists
+        for (const auto& favorite : favorites)
+        {
+            if (
+                favorite.value("userId", 0) ==
+                    authenticatedUserId &&
+                favorite.value("foodId", 0) ==
+                    foodId
+            )
+            {
+                return crow::response(
+                    200,
+                    R"({"status":"success","message":"Food already in favorites"})"
+                );
+            }
+        }
+
+        json newFavorite;
+
+        newFavorite["userId"] =
+            authenticatedUserId;
+
+        newFavorite["foodId"] =
+            foodId;
+
+        favorites.push_back(
+            newFavorite
+        );
+
+        if (!saveJsonFile(
+                "data/favorites.json",
+                favorites))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save favorite"})"
+            );
+        }
+
+        return crow::response(
+            200,
+            R"({"status":"success","message":"Food added to favorites"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request"})"
+        );
+    }
+});
+
+
+// REMOVE FAVORITE
+CROW_ROUTE(app, "/api/favorites/<int>")
+    .methods("DELETE"_method)
+([](const crow::request& request, int foodId)
+{
+    try
+    {
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json favorites =
+            loadJsonFile("data/favorites.json");
+
+        json updatedFavorites =
+            json::array();
+
+        for (const auto& favorite : favorites)
+        {
+            if (
+                favorite.value("userId", 0) ==
+                    authenticatedUserId &&
+                favorite.value("foodId", 0) ==
+                    foodId
+            )
+            {
+                continue;
+            }
+
+            updatedFavorites.push_back(
+                favorite
+            );
+        }
+
+        if (!saveJsonFile(
+                "data/favorites.json",
+                updatedFavorites))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to remove favorite"})"
+            );
+        }
+
+        return crow::response(
+            200,
+            R"({"status":"success","message":"Favorite removed"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to remove favorite"})"
+        );
+    }
+});
+
+app.port(18080)
+   .multithreaded()
+   .run();
 
 
     return 0;
