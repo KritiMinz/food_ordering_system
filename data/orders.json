@@ -17,7 +17,7 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
-        "status": "READY",
+        "status": "DELIVERED",
         "total": 320.0,
         "userId": 1
     },
@@ -39,7 +39,7 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
-        "status": "PLACED",
+        "status": "READY",
         "total": 320.0,
         "userId": 1
     },
@@ -61,8 +61,256 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
-        "status": "PLACED",
+        "status": "CANCELLED",
         "total": 320.0,
         "userId": 1
+    },
+    {
+        "address": "Jharkhand",
+        "id": 4,
+        "items": [
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "OUT_FOR_DELIVERY",
+        "total": 80.0,
+        "userId": 1
+    },
+    {
+        "address": "Khandagiri, Odisha",
+        "id": 5,
+        "items": [
+            {
+                "id": 5,
+                "name": "Cold Coffee",
+                "price": 70,
+                "quantity": 2
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PREPARING",
+        "total": 140.0,
+        "userId": 3
+    },
+    {
+        "address": "Khandagiri, Odisha",
+        "id": 6,
+        "items": [
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 1
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "CANCELLED",
+        "total": 260.0,
+        "userId": 1
+    },
+    {
+        "address": "Patia, Bhubaneswar, Odisha",
+        "couponCode": "WELCOME10",
+        "discount": 26.0,
+        "id": 7,
+        "items": [
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 1
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "CANCELLED",
+        "subtotal": 260.0,
+        "total": 234.0,
+        "userId": 1
+    },
+    {
+        "address": "Patia, Bhubaneswar, Odisha",
+        "couponCode": "WELCOME10",
+        "discount": 26.0,
+        "id": 8,
+        "items": [
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 1
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PLACED",
+        "subtotal": 260.0,
+        "total": 234.0,
+        "userId": 1
+    },
+    {
+        "address": "Khandagiri, Odisha",
+        "couponCode": "WELCOME10",
+        "discount": 26.0,
+        "id": 9,
+        "items": [
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 1
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PLACED",
+        "subtotal": 260.0,
+        "total": 234.0,
+        "userId": 1
+    },
+    {
+        "address": "Bbsr, Odisha",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 10,
+        "items": [
+            {
+                "id": 5,
+                "name": "Cold Coffee",
+                "price": 70,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "CANCELLED",
+        "subtotal": 70.0,
+        "total": 70.0,
+        "userId": 3
+    },
+    {
+        "address": "Delhi",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 11,
+        "items": [
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            },
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PLACED",
+        "subtotal": 260.0,
+        "total": 260.0,
+        "userId": 3
+    },
+    {
+        "address": "Jharkhand",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 12,
+        "items": [
+            {
+                "id": 3,
+                "name": "Italian Pasta",
+                "price": 150,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "CANCELLED",
+        "subtotal": 150.0,
+        "total": 150.0,
+        "userId": 3
+    },
+    {
+        "address": "BBSR",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 13,
+        "items": [
+            {
+                "id": 3,
+                "name": "Italian Pasta",
+                "price": 150,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "PLACED",
+        "subtotal": 150.0,
+        "total": 150.0,
+        "userId": 3
+    },
+    {
+        "address": "Sahidnagar",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 14,
+        "items": [
+            {
+                "id": 2,
+                "name": "Veg Pizza",
+                "price": 180,
+                "quantity": 1
+            },
+            {
+                "id": 3,
+                "name": "Italian Pasta",
+                "price": 150,
+                "quantity": 1
+            },
+            {
+                "id": 5,
+                "name": "Cold Coffee",
+                "price": 70,
+                "quantity": 1
+            },
+            {
+                "id": 4,
+                "name": "French Fries",
+                "price": 80,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Cash on Delivery",
+        "status": "CANCELLED",
+        "subtotal": 480.0,
+        "total": 480.0,
+        "userId": 3
     }
 ]

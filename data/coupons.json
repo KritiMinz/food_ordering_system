@@ -1,0 +1,18 @@
+[
+    {
+        "active": true,
+        "code": "WELCOME10",
+        "discountType": "percentage",
+        "discountValue": 10.0,
+        "id": 1,
+        "minimumOrder": 200.0
+    },
+    {
+        "active": true,
+        "code": "SAVE30",
+        "discountType": "percentage",
+        "discountValue": 30.0,
+        "id": 2,
+        "minimumOrder": 500.0
+    }
+]

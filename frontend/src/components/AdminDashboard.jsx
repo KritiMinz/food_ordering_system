@@ -4,12 +4,27 @@ function AdminDashboard({ currentUser, onLogout }) {
   const [foods, setFoods] = useState([])
   const [showFoodForm, setShowFoodForm] = useState(false)
   const [editingFood, setEditingFood] = useState(null)
+
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
+
+  const [showCouponForm, setShowCouponForm] = useState(false)
+const [couponLoading, setCouponLoading] = useState(false)
+const [coupons, setCoupons] = useState([])
+const [loadingCoupons, setLoadingCoupons] = useState(false)
+
+const [couponForm, setCouponForm] = useState({
+  code: "",
+  discountType: "percentage",
+  discountValue: "",
+  minimumOrder: "",
+})
+
   const [orders, setOrders] = useState([])
-const [loadingOrders, setLoadingOrders] = useState(false)
-const [customers, setCustomers] = useState([])
-const [loadingCustomers, setLoadingCustomers] = useState(false)
+  const [loadingOrders, setLoadingOrders] = useState(false)
+
+  const [customers, setCustomers] = useState([])
+  const [loadingCustomers, setLoadingCustomers] = useState(false)
 
   const [form, setForm] = useState({
     name: "",
@@ -19,8 +34,14 @@ const [loadingCustomers, setLoadingCustomers] = useState(false)
     image: "🍽️",
   })
 
+  // ========================================================
+  // LOAD FOODS
+  // ========================================================
+
   const loadFoods = async () => {
     try {
+      setError("")
+
       const response = await fetch(
         "http://localhost:18080/api/foods"
       )
@@ -37,19 +58,33 @@ const [loadingCustomers, setLoadingCustomers] = useState(false)
     }
   }
 
+  // ========================================================
+  // LOAD ORDERS
+  // ========================================================
+
   const loadOrders = async () => {
   try {
     setLoadingOrders(true)
+    setError("")
+
+    const token = localStorage.getItem("authToken")
 
     const response = await fetch(
-      "http://localhost:18080/api/admin/orders"
+      "http://localhost:18080/api/admin/orders",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
     )
 
-    if (!response.ok) {
-      throw new Error("Failed to load orders")
-    }
-
     const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to load orders"
+      )
+    }
 
     setOrders(data)
   } catch (error) {
@@ -59,19 +94,33 @@ const [loadingCustomers, setLoadingCustomers] = useState(false)
   }
 }
 
-const loadCustomers = async () => {
+  // ========================================================
+  // LOAD CUSTOMERS
+  // ========================================================
+
+  const loadCustomers = async () => {
   try {
     setLoadingCustomers(true)
+    setError("")
+
+    const token = localStorage.getItem("authToken")
 
     const response = await fetch(
-      "http://localhost:18080/api/admin/customers"
+      "http://localhost:18080/api/admin/customers",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
     )
 
-    if (!response.ok) {
-      throw new Error("Failed to load customers")
-    }
-
     const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to load customers"
+      )
+    }
 
     setCustomers(data)
   } catch (error) {
@@ -81,20 +130,66 @@ const loadCustomers = async () => {
   }
 }
 
-const updateOrderStatus = async (orderId, status) => {
+
+// ========================================================
+// LOAD COUPONS
+// ========================================================
+
+const loadCoupons = async () => {
   try {
+    setLoadingCoupons(true)
     setError("")
-    setMessage("")
+
+    const token = localStorage.getItem("authToken")
 
     const response = await fetch(
-      `http://localhost:18080/api/orders/${orderId}/status`,
+      "http://localhost:18080/api/admin/coupons",
       {
-        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to load coupons"
+      )
+    }
+
+    setCoupons(data)
+  } catch (error) {
+    setError(error.message)
+  } finally {
+    setLoadingCoupons(false)
+  }
+}
+
+const handleCreateCoupon = async (event) => {
+  event.preventDefault()
+
+  setMessage("")
+  setError("")
+  setCouponLoading(true)
+
+  try {
+    const token = localStorage.getItem("authToken")
+
+    const response = await fetch(
+      "http://localhost:18080/api/admin/coupons",
+      {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({
-          status,
+          code: couponForm.code.trim().toUpperCase(),
+          discountType: couponForm.discountType,
+          discountValue: Number(couponForm.discountValue),
+          minimumOrder: Number(couponForm.minimumOrder),
         }),
       }
     )
@@ -103,31 +198,165 @@ const updateOrderStatus = async (orderId, status) => {
 
     if (!response.ok) {
       throw new Error(
-        data.message || "Failed to update order status"
+        data.message || "Failed to create coupon"
       )
     }
 
-    setOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === orderId
-          ? { ...order, status }
-          : order
+    setMessage(
+      `Coupon ${data.coupon.code} created successfully`
+    )
+
+    setCouponForm({
+      code: "",
+      discountType: "percentage",
+      discountValue: "",
+      minimumOrder: "",
+    })
+
+    setShowCouponForm(false)
+
+  } catch (error) {
+    setError(error.message)
+  } finally {
+    setCouponLoading(false)
+  }
+}
+
+
+// ========================================================
+// ACTIVATE / DEACTIVATE COUPON
+// ========================================================
+
+const toggleCouponStatus = async (coupon) => {
+  try {
+    setError("")
+    setMessage("")
+
+    const token = localStorage.getItem("authToken")
+
+    const response = await fetch(
+      `http://localhost:18080/api/admin/coupons/${coupon.id}/status`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          active: !coupon.active,
+        }),
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to update coupon status"
+      )
+    }
+
+    setCoupons((currentCoupons) =>
+      currentCoupons.map((item) =>
+        item.id === coupon.id
+          ? {
+              ...item,
+              active: !coupon.active,
+            }
+          : item
       )
     )
 
     setMessage(
-      `Order #${orderId} status updated to ${status}`
+      coupon.active
+        ? `${coupon.code} deactivated successfully`
+        : `${coupon.code} activated successfully`
     )
+
   } catch (error) {
     setError(error.message)
   }
 }
 
+  // ========================================================
+  // UPDATE ORDER STATUS
+  // ========================================================
+
+  const updateOrderStatus = async (orderId, status) => {
+    try {
+      setError("")
+      setMessage("")
+
+      const token = localStorage.getItem("authToken")
+
+      const response = await fetch(
+        `http://localhost:18080/api/orders/${orderId}/status`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            status,
+          }),
+        }
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Failed to update order status"
+        )
+      }
+
+      setOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === orderId
+            ? { ...order, status }
+            : order
+        )
+      )
+
+      setMessage(
+        `Order #${orderId} status updated to ${status}`
+      )
+    } catch (error) {
+      setError(error.message)
+    }
+  }
+
+  // ========================================================
+  // INITIAL LOAD
+  // ========================================================
+
   useEffect(() => {
   loadFoods()
   loadOrders()
   loadCustomers()
+  loadCoupons()
 }, [])
+
+    // ========================================================
+  // DASHBOARD STATISTICS
+  // ========================================================
+
+  const totalFoods = foods.length
+
+  const totalCustomers = customers.length
+
+  const totalOrders = orders.length
+
+  const totalRevenue = orders.reduce(
+    (total, order) =>
+      total + Number(order.total || 0),
+    0
+  )
+
+  // ========================================================
+  // RESET FORM
+  // ========================================================
 
   const resetForm = () => {
     setForm({
@@ -142,6 +371,10 @@ const updateOrderStatus = async (orderId, status) => {
     setShowFoodForm(false)
   }
 
+  // ========================================================
+  // FORM CHANGE
+  // ========================================================
+
   const handleChange = (event) => {
     const { name, value } = event.target
 
@@ -151,6 +384,10 @@ const updateOrderStatus = async (orderId, status) => {
     }))
   }
 
+  // ========================================================
+  // ADD / UPDATE FOOD
+  // ========================================================
+
   const handleSubmit = async (event) => {
     event.preventDefault()
 
@@ -158,22 +395,27 @@ const updateOrderStatus = async (orderId, status) => {
     setError("")
 
     try {
+      const token = localStorage.getItem("authToken")
+
       const url = editingFood
         ? `http://localhost:18080/api/admin/foods/${editingFood.id}`
         : "http://localhost:18080/api/admin/foods"
 
       const method = editingFood ? "PUT" : "POST"
 
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...form,
-          price: Number(form.price),
-        }),
-      })
+      
+
+const response = await fetch(url, {
+  method,
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  },
+  body: JSON.stringify({
+    ...form,
+    price: Number(form.price),
+  }),
+})
 
       const data = await response.json()
 
@@ -196,21 +438,29 @@ const updateOrderStatus = async (orderId, status) => {
     }
   }
 
+  // ========================================================
+  // EDIT FOOD
+  // ========================================================
+
   const handleEdit = (food) => {
     setEditingFood(food)
 
     setForm({
-      name: food.name,
-      description: food.description,
-      price: food.price,
-      category: food.category,
-      image: food.image,
+      name: food.name || "",
+      description: food.description || "",
+      price: food.price || "",
+      category: food.category || "",
+      image: food.image || "🍽️",
     })
 
     setShowFoodForm(true)
     setMessage("")
     setError("")
   }
+
+  // ========================================================
+  // DELETE FOOD
+  // ========================================================
 
   const handleDelete = async (foodId) => {
     const confirmed = window.confirm(
@@ -225,10 +475,15 @@ const updateOrderStatus = async (orderId, status) => {
       setMessage("")
       setError("")
 
+      const token = localStorage.getItem("authToken")
+
       const response = await fetch(
         `http://localhost:18080/api/admin/foods/${foodId}`,
         {
           method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
       )
 
@@ -248,11 +503,71 @@ const updateOrderStatus = async (orderId, status) => {
     }
   }
 
+  // ========================================================
+// UPDATE FOOD AVAILABILITY
+// ========================================================
+
+const updateFoodAvailability = async (foodId, available) => {
+  try {
+    setMessage("")
+    setError("")
+
+    const token = localStorage.getItem("authToken")
+
+    const response = await fetch(
+      `http://localhost:18080/api/admin/foods/${foodId}/availability`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          available,
+        }),
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to update food availability"
+      )
+    }
+
+    setFoods((currentFoods) =>
+      currentFoods.map((food) =>
+        food.id === foodId
+          ? {
+              ...food,
+              available,
+            }
+          : food
+      )
+    )
+
+    setMessage(
+      available
+        ? "Food marked as available."
+        : "Food marked as out of stock."
+    )
+  } catch (error) {
+    setError(error.message)
+  }
+}
+
+  // ========================================================
+  // ADMIN ACCESS CHECK
+  // ========================================================
+
   if (!currentUser || currentUser.role !== "admin") {
     return (
       <section className="max-w-5xl mx-auto px-6 py-20">
         <div className="bg-white rounded-2xl shadow-md p-10 text-center">
-          <div className="text-5xl mb-4">🔒</div>
+          <div className="text-5xl mb-4">
+            🔒
+          </div>
 
           <h2 className="text-2xl font-bold text-gray-800">
             Admin Access Required
@@ -266,11 +581,84 @@ const updateOrderStatus = async (orderId, status) => {
     )
   }
 
+  // ========================================================
+  // DASHBOARD
+  // ========================================================
+
   return (
-    <section className="max-w-7xl mx-auto px-6 py-10">
+    <>
+      {/* =====================================================
+          ADMIN NAVBAR
+      ===================================================== */}
+
+      <nav className="bg-white shadow-md sticky top-0 z-40">
+
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+
+          <div className="text-2xl font-bold text-orange-600">
+            🍔 FoodHub Admin
+          </div>
+
+          <div className="flex items-center gap-6">
+
+            <a
+              href="#admin-dashboard"
+              className="text-gray-700 hover:text-orange-600 font-medium"
+            >
+              🏠 Dashboard
+            </a>
+
+            <a
+              href="#food-management"
+              className="text-gray-700 hover:text-orange-600 font-medium"
+            >
+              🍔 Food
+            </a>
+
+            <a
+              href="#order-management"
+              className="text-gray-700 hover:text-orange-600 font-medium"
+            >
+              📦 Orders
+            </a>
+
+            <a
+              href="#customer-management"
+              className="text-gray-700 hover:text-orange-600 font-medium"
+            >
+              👥 Customers
+            </a>
+
+            <a
+              href="#coupon-management"
+              className="text-gray-700 hover:text-orange-600 font-medium"
+            >
+              🎟️ Discounts
+            </a>
+
+            <button
+              onClick={onLogout}
+              className="bg-red-500 text-white px-4 py-2 rounded-lg
+                         hover:bg-red-600"
+            >
+              Logout
+            </button>
+
+          </div>
+
+        </div>
+
+      </nav>
+
+      <section
+        id="admin-dashboard"
+        className="max-w-7xl mx-auto px-6 py-10"
+      >
 
       {/* Header */}
+
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-10">
+
         <div>
           <h1 className="text-4xl font-bold text-gray-800">
             Admin Dashboard
@@ -287,9 +675,11 @@ const updateOrderStatus = async (orderId, status) => {
         >
           Logout
         </button>
+
       </div>
 
       {/* Messages */}
+
       {message && (
         <div className="bg-green-100 text-green-700 rounded-lg p-4 mb-6">
           {message}
@@ -302,11 +692,127 @@ const updateOrderStatus = async (orderId, status) => {
         </div>
       )}
 
-      {/* Dashboard cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+
+            {/* =====================================================
+          DASHBOARD STATISTICS
+      ===================================================== */}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+
+        {/* Foods */}
 
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <div className="text-4xl mb-4">🍔</div>
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-gray-500 font-medium">
+                Foods
+              </p>
+
+              <p className="text-3xl font-bold text-gray-800 mt-2">
+                {totalFoods}
+              </p>
+            </div>
+
+            <div className="text-4xl">
+              🍔
+            </div>
+
+          </div>
+
+        </div>
+
+
+        {/* Customers */}
+
+        <div className="bg-white rounded-2xl shadow-md p-6">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-gray-500 font-medium">
+                Customers
+              </p>
+
+              <p className="text-3xl font-bold text-gray-800 mt-2">
+                {totalCustomers}
+              </p>
+            </div>
+
+            <div className="text-4xl">
+              👥
+            </div>
+
+          </div>
+
+        </div>
+
+
+        {/* Orders */}
+
+        <div className="bg-white rounded-2xl shadow-md p-6">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-gray-500 font-medium">
+                Orders
+              </p>
+
+              <p className="text-3xl font-bold text-gray-800 mt-2">
+                {totalOrders}
+              </p>
+            </div>
+
+            <div className="text-4xl">
+              📦
+            </div>
+
+          </div>
+
+        </div>
+
+
+        {/* Revenue */}
+
+        <div className="bg-white rounded-2xl shadow-md p-6">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-gray-500 font-medium">
+                Revenue
+              </p>
+
+              <p className="text-3xl font-bold text-gray-800 mt-2">
+                ₹{totalRevenue.toLocaleString("en-IN")}
+              </p>
+            </div>
+
+            <div className="text-4xl">
+              💰
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      {/* Dashboard Cards */}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+
+        <div
+  id="food-management"
+  className="bg-white rounded-2xl shadow-md p-6"
+>
+
+          <div className="text-4xl mb-4">
+            🍔
+          </div>
 
           <h2 className="text-xl font-bold text-gray-800">
             Food Management
@@ -319,16 +825,29 @@ const updateOrderStatus = async (orderId, status) => {
           <button
             onClick={() => {
               setEditingFood(null)
+
+              setForm({
+                name: "",
+                description: "",
+                price: "",
+                category: "",
+                image: "🍽️",
+              })
+
               setShowFoodForm(true)
             }}
             className="mt-5 bg-orange-600 text-white px-5 py-2 rounded-lg hover:bg-orange-700"
           >
             Add Food
           </button>
+
         </div>
 
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <div className="text-4xl mb-4">📦</div>
+
+          <div className="text-4xl mb-4">
+            📦
+          </div>
 
           <h2 className="text-xl font-bold text-gray-800">
             Order Management
@@ -337,10 +856,14 @@ const updateOrderStatus = async (orderId, status) => {
           <p className="text-gray-500 mt-2">
             View customer orders and update order status.
           </p>
+
         </div>
 
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <div className="text-4xl mb-4">👥</div>
+
+          <div className="text-4xl mb-4">
+            👥
+          </div>
 
           <h2 className="text-xl font-bold text-gray-800">
             Customers
@@ -349,17 +872,24 @@ const updateOrderStatus = async (orderId, status) => {
           <p className="text-gray-500 mt-2">
             View registered customers and account information.
           </p>
+
         </div>
 
       </div>
 
-      {/* Add/Edit Food Form */}
+      {/* =====================================================
+          ADD / EDIT FOOD
+      ===================================================== */}
+
       {showFoodForm && (
         <div className="bg-white rounded-2xl shadow-md p-8 mb-10">
 
           <div className="flex justify-between items-center mb-6">
+
             <h2 className="text-2xl font-bold text-gray-800">
-              {editingFood ? "Edit Food" : "Add New Food"}
+              {editingFood
+                ? "Edit Food"
+                : "Add New Food"}
             </h2>
 
             <button
@@ -368,6 +898,7 @@ const updateOrderStatus = async (orderId, status) => {
             >
               ×
             </button>
+
           </div>
 
           <form
@@ -437,6 +968,7 @@ const updateOrderStatus = async (orderId, status) => {
             </div>
 
             <div className="md:col-span-2">
+
               <label className="block font-semibold text-gray-700 mb-2">
                 Description
               </label>
@@ -450,6 +982,7 @@ const updateOrderStatus = async (orderId, status) => {
                 className="w-full border rounded-lg px-4 py-3"
                 placeholder="Describe the food item..."
               />
+
             </div>
 
             <div className="md:col-span-2 flex gap-3">
@@ -458,7 +991,9 @@ const updateOrderStatus = async (orderId, status) => {
                 type="submit"
                 className="bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700"
               >
-                {editingFood ? "Update Food" : "Add Food"}
+                {editingFood
+                  ? "Update Food"
+                  : "Add Food"}
               </button>
 
               <button
@@ -476,248 +1011,300 @@ const updateOrderStatus = async (orderId, status) => {
       )}
 
       {/* =====================================================
-    ORDER MANAGEMENT
-===================================================== */}
+          ORDER MANAGEMENT
+      ===================================================== */}
 
-<section className="bg-white rounded-2xl shadow p-6 mb-8">
-  <div className="flex items-center justify-between mb-6">
-    <div>
-      <h2 className="text-2xl font-bold text-gray-800">
-        📦 Order Management
-      </h2>
+      <section
+  id="order-management"
+  className="bg-white rounded-2xl shadow p-6 mb-8"
+>
 
-      <p className="text-gray-500 mt-1">
-        View customer orders and update order status.
-      </p>
-    </div>
+        <div className="flex items-center justify-between mb-6">
 
-    <button
-      onClick={loadOrders}
-      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
-    >
-      🔄 Refresh
-    </button>
-  </div>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">
+              📦 Order Management
+            </h2>
 
-  {loadingOrders ? (
-    <p className="text-gray-500">
-      Loading orders...
-    </p>
-  ) : orders.length === 0 ? (
-    <p className="text-gray-500">
-      No orders found.
-    </p>
-  ) : (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b">
-            <th className="py-3 px-3">Order</th>
-            <th className="py-3 px-3">Customer</th>
-            <th className="py-3 px-3">Items</th>
-            <th className="py-3 px-3">Total</th>
-            <th className="py-3 px-3">Payment</th>
-            <th className="py-3 px-3">Address</th>
-            <th className="py-3 px-3">Status</th>
-          </tr>
-        </thead>
+            <p className="text-gray-500 mt-1">
+              View customer orders and update order status.
+            </p>
+          </div>
 
-        <tbody>
-          {orders.map((order) => (
-            <tr
-              key={order.id}
-              className="border-b hover:bg-gray-50"
-            >
-              <td className="py-4 px-3 font-semibold">
-                #{order.id}
-              </td>
+          <button
+            onClick={loadOrders}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
+          >
+            🔄 Refresh
+          </button>
 
-              <td className="py-4 px-3">
-                User #{order.userId}
-              </td>
+        </div>
 
-              <td className="py-4 px-3">
-                <div className="space-y-1">
-                  {order.items?.map((item) => (
-                    <div key={item.id}>
-                      {item.name} × {item.quantity}
-                    </div>
-                  ))}
-                </div>
-              </td>
+        {loadingOrders ? (
+          <p className="text-gray-500">
+            Loading orders...
+          </p>
+        ) : orders.length === 0 ? (
+          <p className="text-gray-500">
+            No orders found.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
 
-              <td className="py-4 px-3 font-semibold">
-                ₹{order.total}
-              </td>
+            <table className="w-full text-left">
 
-              <td className="py-4 px-3">
-                {order.paymentMethod}
-              </td>
+              <thead>
+                <tr className="border-b">
+                  <th className="py-3 px-3">Order</th>
+                  <th className="py-3 px-3">Customer</th>
+                  <th className="py-3 px-3">Items</th>
+                  <th className="py-3 px-3">Total</th>
+                  <th className="py-3 px-3">Payment</th>
+                  <th className="py-3 px-3">Address</th>
+                  <th className="py-3 px-3">Status</th>
+                </tr>
+              </thead>
 
-              <td className="py-4 px-3">
-                {order.address}
-              </td>
+              <tbody>
 
-              <td className="py-4 px-3">
-                <select
-                  value={order.status}
-                  onChange={(event) =>
-                    updateOrderStatus(
-                      order.id,
-                      event.target.value
-                    )
-                  }
-                  className="border rounded-lg px-3 py-2 bg-white"
-                >
-                  <option value="PLACED">
-                    PLACED
-                  </option>
+                {orders.map((order) => (
+                  <tr
+                    key={order.id}
+                    className="border-b hover:bg-gray-50"
+                  >
 
-                  <option value="CONFIRMED">
-                    CONFIRMED
-                  </option>
+                    <td className="py-4 px-3 font-semibold">
+                      #{order.id}
+                    </td>
 
-                  <option value="PREPARING">
-                    PREPARING
-                  </option>
+                    <td className="py-4 px-3">
+                      User #{order.userId}
+                    </td>
 
-                  <option value="READY">
-                    READY
-                  </option>
+                    <td className="py-4 px-3">
+                      <div className="space-y-1">
 
-                  <option value="OUT_FOR_DELIVERY">
-                    OUT_FOR_DELIVERY
-                  </option>
+                        {order.items?.map((item, index) => (
+                          <div
+                            key={`${item.id}-${index}`}
+                          >
+                            {item.name} × {item.quantity}
+                          </div>
+                        ))}
 
-                  <option value="DELIVERED">
-                    DELIVERED
-                  </option>
+                      </div>
+                    </td>
 
-                  <option value="CANCELLED">
-                    CANCELLED
-                  </option>
-                </select>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</section>
+                    <td className="py-4 px-3 font-semibold">
+                      ₹{order.total}
+                    </td>
 
-{/* =====================================================
-    CUSTOMER MANAGEMENT
-===================================================== */}
+                    <td className="py-4 px-3">
+                      {order.paymentMethod}
+                    </td>
 
-<section className="bg-white rounded-2xl shadow p-6 mb-8">
-  <div className="flex items-center justify-between mb-6">
-    <div>
-      <h2 className="text-2xl font-bold text-gray-800">
-        👥 Customer Management
-      </h2>
+                    <td className="py-4 px-3">
+                      {order.address}
+                    </td>
 
-      <p className="text-gray-500 mt-1">
-        View registered customer accounts.
-      </p>
-    </div>
+                    <td className="py-4 px-3">
 
-    <button
-      onClick={loadCustomers}
-      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
-    >
-      🔄 Refresh
-    </button>
-  </div>
+                      <select
+                        value={order.status}
+                        onChange={(event) =>
+                          updateOrderStatus(
+                            order.id,
+                            event.target.value
+                          )
+                        }
+                        className="border rounded-lg px-3 py-2 bg-white"
+                      >
 
-  <div className="mb-5">
-    <div className="inline-block bg-gray-100 rounded-xl px-5 py-3">
-      <span className="text-gray-500">
-        Total Customers
-      </span>
+                        <option value="PLACED">
+                          PLACED
+                        </option>
 
-      <span className="ml-3 text-2xl font-bold">
-        {customers.length}
-      </span>
-    </div>
-  </div>
+                        <option value="CONFIRMED">
+                          CONFIRMED
+                        </option>
 
-  {loadingCustomers ? (
-    <p className="text-gray-500">
-      Loading customers...
-    </p>
-  ) : customers.length === 0 ? (
-    <p className="text-gray-500">
-      No customers registered.
-    </p>
-  ) : (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b">
-            <th className="py-3 px-3">
-              ID
-            </th>
+                        <option value="PREPARING">
+                          PREPARING
+                        </option>
 
-            <th className="py-3 px-3">
-              Name
-            </th>
+                        <option value="READY">
+                          READY
+                        </option>
 
-            <th className="py-3 px-3">
-              Phone
-            </th>
+                        <option value="OUT_FOR_DELIVERY">
+                          OUT_FOR_DELIVERY
+                        </option>
 
-            <th className="py-3 px-3">
-              Email
-            </th>
+                        <option value="DELIVERED">
+                          DELIVERED
+                        </option>
 
-            <th className="py-3 px-3">
-              Role
-            </th>
-          </tr>
-        </thead>
+                        <option value="CANCELLED">
+                          CANCELLED
+                        </option>
 
-        <tbody>
-          {customers.map((customer) => (
-            <tr
-              key={customer.id}
-              className="border-b hover:bg-gray-50"
-            >
-              <td className="py-4 px-3">
-                #{customer.id}
-              </td>
+                      </select>
 
-              <td className="py-4 px-3 font-semibold">
-                {customer.name}
-              </td>
+                    </td>
 
-              <td className="py-4 px-3">
-                {customer.phone}
-              </td>
+                  </tr>
+                ))}
 
-              <td className="py-4 px-3">
-                {customer.email}
-              </td>
+              </tbody>
 
-              <td className="py-4 px-3">
-                <span className="px-3 py-1 rounded-full bg-gray-100 text-sm">
-                  {customer.role}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</section>
+            </table>
 
-      {/* Food List */}
+          </div>
+        )}
+
+      </section>
+
+      {/* =====================================================
+          CUSTOMER MANAGEMENT
+      ===================================================== */}
+
+      <section
+  id="customer-management"
+  className="bg-white rounded-2xl shadow p-6 mb-8"
+>
+
+        <div className="flex items-center justify-between mb-6">
+
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">
+              👥 Customer Management
+            </h2>
+
+            <p className="text-gray-500 mt-1">
+              View registered customer accounts.
+            </p>
+          </div>
+
+          <button
+            onClick={loadCustomers}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
+          >
+            🔄 Refresh
+          </button>
+
+        </div>
+
+        <div className="mb-5">
+
+          <div className="inline-block bg-gray-100 rounded-xl px-5 py-3">
+
+            <span className="text-gray-500">
+              Total Customers
+            </span>
+
+            <span className="ml-3 text-2xl font-bold">
+              {customers.length}
+            </span>
+
+          </div>
+
+        </div>
+
+        {loadingCustomers ? (
+          <p className="text-gray-500">
+            Loading customers...
+          </p>
+        ) : customers.length === 0 ? (
+          <p className="text-gray-500">
+            No customers registered.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+
+            <table className="w-full text-left">
+
+              <thead>
+                <tr className="border-b">
+
+                  <th className="py-3 px-3">
+                    ID
+                  </th>
+
+                  <th className="py-3 px-3">
+                    Name
+                  </th>
+
+                  <th className="py-3 px-3">
+                    Phone
+                  </th>
+
+                  <th className="py-3 px-3">
+                    Email
+                  </th>
+
+                  <th className="py-3 px-3">
+                    Role
+                  </th>
+
+                </tr>
+              </thead>
+
+              <tbody>
+
+                {customers.map((customer) => (
+                  <tr
+                    key={customer.id}
+                    className="border-b hover:bg-gray-50"
+                  >
+
+                    <td className="py-4 px-3">
+                      #{customer.id}
+                    </td>
+
+                    <td className="py-4 px-3 font-semibold">
+                      {customer.name}
+                    </td>
+
+                    <td className="py-4 px-3">
+                      {customer.phone}
+                    </td>
+
+                    <td className="py-4 px-3">
+                      {customer.email}
+                    </td>
+
+                    <td className="py-4 px-3">
+
+                      <span className="px-3 py-1 rounded-full bg-gray-100 text-sm">
+                        {customer.role}
+                      </span>
+
+                    </td>
+
+                  </tr>
+                ))}
+
+              </tbody>
+
+            </table>
+
+          </div>
+        )}
+
+      </section>
+
+      {/* =====================================================
+          FOOD LIST
+      ===================================================== */}
+
       <div className="bg-white rounded-2xl shadow-md overflow-hidden">
 
         <div className="p-6 border-b">
+
           <div className="flex items-center justify-between">
+
             <div>
+
               <h2 className="text-2xl font-bold text-gray-800">
                 Food Items
               </h2>
@@ -725,6 +1312,7 @@ const updateOrderStatus = async (orderId, status) => {
               <p className="text-gray-500 mt-1">
                 {foods.length} food items available
               </p>
+
             </div>
 
             <button
@@ -733,7 +1321,9 @@ const updateOrderStatus = async (orderId, status) => {
             >
               Refresh
             </button>
+
           </div>
+
         </div>
 
         <div className="overflow-x-auto">
@@ -741,7 +1331,9 @@ const updateOrderStatus = async (orderId, status) => {
           <table className="w-full">
 
             <thead className="bg-gray-50">
+
               <tr>
+
                 <th className="text-left px-6 py-4">
                   Food
                 </th>
@@ -751,13 +1343,19 @@ const updateOrderStatus = async (orderId, status) => {
                 </th>
 
                 <th className="text-left px-6 py-4">
-                  Price
-                </th>
+  Price
+</th>
 
-                <th className="text-right px-6 py-4">
-                  Actions
-                </th>
+<th className="text-left px-6 py-4">
+  Availability
+</th>
+
+<th className="text-right px-6 py-4">
+  Actions
+</th>
+
               </tr>
+
             </thead>
 
             <tbody>
@@ -777,6 +1375,7 @@ const updateOrderStatus = async (orderId, status) => {
                       </div>
 
                       <div>
+
                         <p className="font-bold text-gray-800">
                           {food.name}
                         </p>
@@ -784,6 +1383,7 @@ const updateOrderStatus = async (orderId, status) => {
                         <p className="text-sm text-gray-500">
                           {food.description}
                         </p>
+
                       </div>
 
                     </div>
@@ -795,10 +1395,66 @@ const updateOrderStatus = async (orderId, status) => {
                   </td>
 
                   <td className="px-6 py-4 font-bold text-orange-600">
-                    ₹{food.price}
-                  </td>
+  ₹{food.price}
+</td>
 
-                  <td className="px-6 py-4">
+<td className="px-6 py-4">
+
+  {food.available ? (
+    <div className="space-y-2">
+
+      <span className="inline-block px-3 py-1 rounded-full
+                       bg-green-100 text-green-700
+                       text-sm font-semibold">
+        🟢 Available
+      </span>
+
+      <button
+        onClick={() =>
+          updateFoodAvailability(
+            food.id,
+            false
+          )
+        }
+        className="block border border-red-500
+                   text-red-600 px-3 py-2
+                   rounded-lg hover:bg-red-50
+                   text-sm"
+      >
+        Mark Out of Stock
+      </button>
+
+    </div>
+  ) : (
+    <div className="space-y-2">
+
+      <span className="inline-block px-3 py-1 rounded-full
+                       bg-red-100 text-red-700
+                       text-sm font-semibold">
+        🔴 Out of Stock
+      </span>
+
+      <button
+        onClick={() =>
+          updateFoodAvailability(
+            food.id,
+            true
+          )
+        }
+        className="block border border-green-500
+                   text-green-600 px-3 py-2
+                   rounded-lg hover:bg-green-50
+                   text-sm"
+      >
+        Mark Available
+      </button>
+
+    </div>
+  )}
+
+</td>
+
+<td className="px-6 py-4">
 
                     <div className="flex justify-end gap-2">
 
@@ -828,9 +1484,287 @@ const updateOrderStatus = async (orderId, status) => {
           </table>
 
         </div>
+
       </div>
 
-      {/* System Information */}
+
+            {/* =====================================================
+    DISCOUNT MANAGEMENT
+===================================================== */}
+
+<section
+  id="coupon-management"
+  className="bg-white rounded-2xl shadow-md p-6 mt-8"
+>
+
+  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+    <div>
+      <h2 className="text-2xl font-bold text-gray-800">
+        🎟️ Discount Management
+      </h2>
+
+      <p className="text-gray-500 mt-1">
+        Create and manage discount coupons for customers.
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => setShowCouponForm(!showCouponForm)}
+      className="bg-orange-600 text-white px-5 py-3 rounded-lg
+                 hover:bg-orange-700 font-semibold"
+    >
+      {showCouponForm
+        ? "✕ Close"
+        : "+ Create Discount"}
+    </button>
+
+  </div>
+
+  {/* CREATE COUPON FORM */}
+
+  {showCouponForm && (
+    <form
+      onSubmit={handleCreateCoupon}
+      className="mt-6 bg-orange-50 rounded-xl p-6"
+    >
+
+      <h3 className="text-xl font-bold text-gray-800 mb-5">
+        Create New Coupon
+      </h3>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Coupon Code
+          </label>
+
+          <input
+            type="text"
+            value={couponForm.code}
+            onChange={(event) =>
+              setCouponForm({
+                ...couponForm,
+                code: event.target.value.toUpperCase(),
+              })
+            }
+            placeholder="Example: SAVE30"
+            className="w-full border rounded-lg px-4 py-3"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Discount Type
+          </label>
+
+          <select
+            value={couponForm.discountType}
+            onChange={(event) =>
+              setCouponForm({
+                ...couponForm,
+                discountType: event.target.value,
+              })
+            }
+            className="w-full border rounded-lg px-4 py-3"
+          >
+            <option value="percentage">
+              Percentage (%)
+            </option>
+
+            <option value="fixed">
+              Fixed Amount (₹)
+            </option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Discount Value
+          </label>
+
+          <input
+            type="number"
+            min="1"
+            value={couponForm.discountValue}
+            onChange={(event) =>
+              setCouponForm({
+                ...couponForm,
+                discountValue: event.target.value,
+              })
+            }
+            placeholder={
+              couponForm.discountType === "percentage"
+                ? "30"
+                : "100"
+            }
+            className="w-full border rounded-lg px-4 py-3"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Minimum Order Value
+          </label>
+
+          <input
+            type="number"
+            min="0"
+            value={couponForm.minimumOrder}
+            onChange={(event) =>
+              setCouponForm({
+                ...couponForm,
+                minimumOrder: event.target.value,
+              })
+            }
+            placeholder="500"
+            className="w-full border rounded-lg px-4 py-3"
+            required
+          />
+        </div>
+
+      </div>
+
+      <button
+        type="submit"
+        disabled={couponLoading}
+        className="mt-5 bg-green-600 text-white px-6 py-3 rounded-lg
+                   font-semibold hover:bg-green-700
+                   disabled:bg-gray-400"
+      >
+        {couponLoading
+          ? "Creating..."
+          : "Create Coupon"}
+      </button>
+
+    </form>
+  )}
+
+  {/* EXISTING COUPONS */}
+
+  <div className="mt-8">
+
+    <h3 className="text-xl font-bold text-gray-800 mb-4">
+      Existing Coupons
+    </h3>
+
+    {loadingCoupons ? (
+      <p className="text-gray-500">
+        Loading coupons...
+      </p>
+    ) : coupons.length === 0 ? (
+      <div className="bg-gray-50 rounded-lg p-5 text-gray-500">
+        No coupons have been created yet.
+      </div>
+    ) : (
+      <div className="overflow-x-auto">
+
+        <table className="w-full">
+
+          <thead>
+            <tr className="border-b text-left">
+
+              <th className="px-4 py-3">
+                Code
+              </th>
+
+              <th className="px-4 py-3">
+                Discount
+              </th>
+
+              <th className="px-4 py-3">
+                Minimum Order
+              </th>
+
+              <th className="px-4 py-3">
+                Status
+              </th>
+
+            </tr>
+          </thead>
+
+          <tbody>
+
+            {coupons.map((coupon) => (
+
+              <tr
+                key={coupon.id}
+                className="border-b"
+              >
+
+                <td className="px-4 py-4 font-bold text-gray-800">
+                  {coupon.code}
+                </td>
+
+                <td className="px-4 py-4">
+
+                  {coupon.discountType === "percentage"
+                    ? `${coupon.discountValue}%`
+                    : `₹${coupon.discountValue}`}
+
+                </td>
+
+                <td className="px-4 py-4">
+                  ₹{coupon.minimumOrder}
+                </td>
+
+                <td className="px-4 py-4">
+
+  <div className="flex items-center gap-3">
+
+    {coupon.active ? (
+      <span className="inline-block bg-green-100 text-green-700
+                       px-3 py-1 rounded-full text-sm font-semibold">
+        🟢 Active
+      </span>
+    ) : (
+      <span className="inline-block bg-red-100 text-red-700
+                       px-3 py-1 rounded-full text-sm font-semibold">
+        🔴 Inactive
+      </span>
+    )}
+
+    <button
+      type="button"
+      onClick={() => toggleCouponStatus(coupon)}
+      className={
+        coupon.active
+          ? "border border-red-500 text-red-600 px-3 py-1 rounded-lg hover:bg-red-50 text-sm font-semibold"
+          : "border border-green-500 text-green-600 px-3 py-1 rounded-lg hover:bg-green-50 text-sm font-semibold"
+      }
+    >
+      {coupon.active
+        ? "Deactivate"
+        : "Activate"}
+    </button>
+
+  </div>
+
+</td>
+
+              </tr>
+
+            ))}
+
+          </tbody>
+
+        </table>
+
+      </div>
+    )}
+
+  </div>
+
+</section>
+
+      {/* =====================================================
+          SYSTEM INFORMATION
+      ===================================================== */}
+
       <div className="bg-white rounded-2xl shadow-md p-6 mt-8">
 
         <h2 className="text-2xl font-bold text-gray-800 mb-4">
@@ -840,24 +1774,39 @@ const updateOrderStatus = async (orderId, status) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
           <div className="bg-orange-50 rounded-lg p-4">
-            <p className="text-gray-500">Backend</p>
+
+            <p className="text-gray-500">
+              Backend
+            </p>
+
             <p className="font-bold text-orange-600">
               C++17
             </p>
+
           </div>
 
           <div className="bg-orange-50 rounded-lg p-4">
-            <p className="text-gray-500">Storage</p>
+
+            <p className="text-gray-500">
+              Storage
+            </p>
+
             <p className="font-bold text-orange-600">
               JSON Files
             </p>
+
           </div>
 
           <div className="bg-orange-50 rounded-lg p-4">
-            <p className="text-gray-500">Server</p>
+
+            <p className="text-gray-500">
+              Server
+            </p>
+
             <p className="font-bold text-orange-600">
               Crow HTTP Server
             </p>
+
           </div>
 
         </div>
@@ -865,7 +1814,9 @@ const updateOrderStatus = async (orderId, status) => {
       </div>
 
     </section>
+  </>
   )
 }
 
 export default AdminDashboard
+

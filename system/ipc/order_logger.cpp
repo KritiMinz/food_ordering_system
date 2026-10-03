@@ -11,7 +11,7 @@
 
 #define ORDER_EVENT_PIPE "/tmp/food_order_events"
 #define FOOD_DEVICE "/dev/food_order"
-#define LOG_FILE "data/order_log.txt"
+#define LOG_FILE "../../data/order_log.txt"
 
 std::atomic<bool> running(true);
 

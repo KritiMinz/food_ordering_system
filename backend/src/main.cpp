@@ -15,11 +15,13 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <cctype>
 
 using json = nlohmann::json;
 
 const std::string FOOD_FILE = "data/foods.json";
 const std::string USER_FILE = "data/users.json";
+const std::string COUPON_FILE = "data/coupons.json";
 
 std::mutex userFileMutex;
 std::mutex sessionMutex;
@@ -169,6 +171,97 @@ std::string generateToken()
     return stream.str();
 }
 
+// ============================================================
+// Authentication and authorization helpers
+// ============================================================
+
+bool authenticateRequest(
+    const crow::request& request,
+    int& userId,
+    std::string& role)
+{
+    std::string authorization =
+        request.get_header_value("Authorization");
+
+    const std::string prefix = "Bearer ";
+
+    if (
+        authorization.size() <= prefix.size() ||
+        authorization.compare(
+            0,
+            prefix.size(),
+            prefix
+        ) != 0
+    )
+    {
+        return false;
+    }
+
+    std::string token =
+        authorization.substr(prefix.size());
+
+    int authenticatedUserId = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(
+            sessionMutex
+        );
+
+        auto session =
+            sessions.find(token);
+
+        if (session == sessions.end())
+        {
+            return false;
+        }
+
+        authenticatedUserId =
+            session->second;
+    }
+
+    json users =
+        loadJsonFile(USER_FILE);
+
+    for (const auto& user : users)
+    {
+        if (
+            user.contains("id") &&
+            user["id"].get<int>() == authenticatedUserId
+        )
+        {
+            userId = authenticatedUserId;
+
+            role =
+                user.value(
+                    "role",
+                    "customer"
+                );
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+bool requireAdmin(
+    const crow::request& request,
+    int& userId)
+{
+    std::string role;
+
+    if (!authenticateRequest(
+            request,
+            userId,
+            role))
+    {
+        return false;
+    }
+
+    return role == "admin";
+}
+
 
 // ============================================================
 // Load food data
@@ -208,21 +301,26 @@ int main()
     crow::App<crow::CORSHandler> app;
 
     // ========================================================
-    // CORS
-    // ========================================================
+// CORS
+// ========================================================
 
-    auto& cors = app.get_middleware<crow::CORSHandler>();
+auto& cors =
+    app.get_middleware<crow::CORSHandler>();
 
-    cors.global()
-        .origin("http://localhost:5173")
-        .methods(
-            "GET"_method,
-            "POST"_method,
-            "PUT"_method,
-            "DELETE"_method
-        )
-        .headers("Content-Type");
-
+cors.global()
+    .origin("http://localhost:5173")
+    .headers(
+        "Content-Type",
+        "Authorization"
+    )
+    .methods(
+        "GET"_method,
+        "POST"_method,
+        "PUT"_method,
+        "DELETE"_method,
+        "OPTIONS"_method
+    )
+    .max_age(86400);
 
     // ========================================================
     // Health check
@@ -266,17 +364,834 @@ int main()
     // ========================================================
 
     CROW_ROUTE(app, "/api/foods")
-    ([]()
-    {
-        json foods = loadFoods();
+([]()
+{
+    json foods = loadFoods();
 
-        crow::json::wvalue response =
-            crow::json::load(foods.dump());
+    // Make older food records available by default
+    // if they do not yet contain the availability field.
+
+    for (auto& food : foods)
+    {
+        if (!food.contains("available"))
+        {
+            food["available"] = true;
+        }
+    }
+
+    crow::json::wvalue response =
+        crow::json::load(foods.dump());
+
+    return response;
+});
+
+// ========================================================
+// ADMIN - GET COUPONS
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/coupons")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load coupons
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json coupons =
+            loadJsonFile(COUPON_FILE);
+
+        // ------------------------------------------------
+        // Return coupons
+        // ------------------------------------------------
+
+        crow::response response(
+            coupons.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
 
         return response;
-    });
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load coupons"})"
+        );
+    }
+});
 
-    // ========================================================
+// ========================================================
+// ADMIN - CREATE COUPON
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/coupons")
+    .methods("POST"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        std::string code =
+            requestData.value("code", "");
+
+        std::string discountType =
+            requestData.value(
+                "discountType",
+                "percentage"
+            );
+
+        double discountValue =
+            requestData.value(
+                "discountValue",
+                0.0
+            );
+
+        double minimumOrder =
+            requestData.value(
+                "minimumOrder",
+                0.0
+            );
+
+        // ------------------------------------------------
+        // Validate
+        // ------------------------------------------------
+
+        if (code.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Coupon code is required"})"
+            );
+        }
+
+        if (
+            discountType != "percentage" &&
+            discountType != "fixed"
+        )
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid discount type"})"
+            );
+        }
+
+        if (discountValue <= 0)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Discount value must be greater than zero"})"
+            );
+        }
+
+        if (discountType == "percentage" &&
+            discountValue > 100)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Percentage discount cannot exceed 100"})"
+            );
+        }
+
+        if (minimumOrder < 0)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Minimum order cannot be negative"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Normalize coupon code
+        // ------------------------------------------------
+
+        for (char& character : code)
+        {
+            character =
+                static_cast<char>(
+                    std::toupper(
+                        static_cast<unsigned char>(
+                            character
+                        )
+                    )
+                );
+        }
+
+        // ------------------------------------------------
+        // Load coupons
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json coupons =
+            loadJsonFile(COUPON_FILE);
+
+        // ------------------------------------------------
+        // Check duplicate coupon
+        // ------------------------------------------------
+
+        for (const auto& coupon : coupons)
+        {
+            if (
+                coupon.contains("code") &&
+                coupon["code"].get<std::string>() ==
+                    code
+            )
+            {
+                return crow::response(
+                    409,
+                    R"({"status":"error","message":"Coupon code already exists"})"
+                );
+            }
+        }
+
+        // ------------------------------------------------
+        // Generate ID
+        // ------------------------------------------------
+
+        int newCouponId = 1;
+
+        if (!coupons.empty())
+        {
+            newCouponId =
+                coupons.back()["id"].get<int>() + 1;
+        }
+
+        // ------------------------------------------------
+        // Create coupon
+        // ------------------------------------------------
+
+        json coupon;
+
+        coupon["id"] =
+            newCouponId;
+
+        coupon["code"] =
+            code;
+
+        coupon["discountType"] =
+            discountType;
+
+        coupon["discountValue"] =
+            discountValue;
+
+        coupon["minimumOrder"] =
+            minimumOrder;
+
+        coupon["active"] =
+            true;
+
+        coupons.push_back(coupon);
+
+        // ------------------------------------------------
+        // Save
+        // ------------------------------------------------
+
+        if (!saveJsonFile(
+                COUPON_FILE,
+                coupons))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save coupon"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["message"] =
+            "Coupon created successfully";
+
+        responseData["coupon"] =
+            coupon;
+
+        crow::response response(
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request data"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to create coupon"})"
+        );
+    }
+});
+
+// ========================================================
+// ADMIN - ACTIVATE / DEACTIVATE COUPON
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/coupons/<int>/status")
+    .methods("PUT"_method)
+([](const crow::request& request, int couponId)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        bool active =
+            requestData.value("active", false);
+
+        // ------------------------------------------------
+        // Load coupons
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json coupons =
+            loadJsonFile(COUPON_FILE);
+
+        // ------------------------------------------------
+        // Find coupon
+        // ------------------------------------------------
+
+        bool found = false;
+
+        for (auto& coupon : coupons)
+        {
+            if (
+                coupon.contains("id") &&
+                coupon["id"].get<int>() == couponId
+            )
+            {
+                coupon["active"] = active;
+                found = true;
+                break;
+            }
+        }
+
+        // ------------------------------------------------
+        // Coupon not found
+        // ------------------------------------------------
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Coupon not found"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Save
+        // ------------------------------------------------
+
+        if (!saveJsonFile(
+                COUPON_FILE,
+                coupons))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save coupon status"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["message"] =
+            active
+                ? "Coupon activated successfully"
+                : "Coupon deactivated successfully";
+
+        responseData["couponId"] =
+            couponId;
+
+        responseData["active"] =
+            active;
+
+        crow::response response(
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request data"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to update coupon status"})"
+        );
+    }
+});
+
+// ========================================================
+// CUSTOMER - GET ACTIVE COUPONS
+// ========================================================
+
+CROW_ROUTE(app, "/api/coupons")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Customer authentication
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load coupons
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json coupons =
+            loadJsonFile(COUPON_FILE);
+
+        json activeCoupons =
+            json::array();
+
+        // ------------------------------------------------
+        // Return only active coupons
+        // ------------------------------------------------
+
+        for (const auto& coupon : coupons)
+        {
+            if (
+                coupon.value("active", false)
+            )
+            {
+                activeCoupons.push_back(coupon);
+            }
+        }
+
+        crow::response response(
+            activeCoupons.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load coupons"})"
+        );
+    }
+});
+
+// ========================================================
+// CUSTOMER - APPLY COUPON
+// ========================================================
+
+CROW_ROUTE(app, "/api/coupons/apply")
+    .methods("POST"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Authenticate customer
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        std::string code =
+            requestData.value("code", "");
+
+        double subtotal =
+            requestData.value("subtotal", 0.0);
+
+        // ------------------------------------------------
+        // Validate input
+        // ------------------------------------------------
+
+        if (code.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Coupon code is required"})"
+            );
+        }
+
+        if (subtotal <= 0)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid order subtotal"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Normalize coupon code
+        // ------------------------------------------------
+
+        for (char& character : code)
+        {
+            character =
+                static_cast<char>(
+                    std::toupper(
+                        static_cast<unsigned char>(
+                            character
+                        )
+                    )
+                );
+        }
+
+        // ------------------------------------------------
+        // Load coupons
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json coupons =
+            loadJsonFile(COUPON_FILE);
+
+        // ------------------------------------------------
+        // Find coupon
+        // ------------------------------------------------
+
+        for (const auto& coupon : coupons)
+        {
+            std::string couponCode =
+                coupon.value("code", "");
+
+            if (couponCode != code)
+            {
+                continue;
+            }
+
+            // --------------------------------------------
+            // Check active
+            // --------------------------------------------
+
+            bool active =
+                coupon.value("active", false);
+
+            if (!active)
+            {
+                return crow::response(
+                    400,
+                    R"({"status":"error","message":"This coupon is inactive"})"
+                );
+            }
+
+            // --------------------------------------------
+            // Check minimum order
+            // --------------------------------------------
+
+            double minimumOrder =
+                coupon.value(
+                    "minimumOrder",
+                    0.0
+                );
+
+            if (subtotal < minimumOrder)
+            {
+                json responseData;
+
+                responseData["status"] =
+                    "error";
+
+                responseData["message"] =
+                    "Minimum order value is ₹" +
+                    std::to_string(
+                        static_cast<int>(
+                            minimumOrder
+                        )
+                    );
+
+                crow::response response(
+                    400,
+                    responseData.dump()
+                );
+
+                response.set_header(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                return response;
+            }
+
+            // --------------------------------------------
+            // Calculate discount
+            // --------------------------------------------
+
+            std::string discountType =
+                coupon.value(
+                    "discountType",
+                    "percentage"
+                );
+
+            double discountValue =
+                coupon.value(
+                    "discountValue",
+                    0.0
+                );
+
+            double discount = 0.0;
+
+            if (discountType == "percentage")
+            {
+                discount =
+                    subtotal *
+                    discountValue /
+                    100.0;
+            }
+            else if (discountType == "fixed")
+            {
+                discount =
+                    discountValue;
+            }
+            else
+            {
+                return crow::response(
+                    400,
+                    R"({"status":"error","message":"Invalid coupon configuration"})"
+                );
+            }
+
+            // --------------------------------------------
+            // Never allow discount above subtotal
+            // --------------------------------------------
+
+            if (discount > subtotal)
+            {
+                discount = subtotal;
+            }
+
+            double finalTotal =
+                subtotal - discount;
+
+            // --------------------------------------------
+            // Response
+            // --------------------------------------------
+
+            json responseData;
+
+            responseData["status"] =
+                "success";
+
+            responseData["message"] =
+                "Coupon applied successfully";
+
+            responseData["couponCode"] =
+                code;
+
+            responseData["discountType"] =
+                discountType;
+
+            responseData["discountValue"] =
+                discountValue;
+
+            responseData["subtotal"] =
+                subtotal;
+
+            responseData["discount"] =
+                discount;
+
+            responseData["total"] =
+                finalTotal;
+
+            crow::response response(
+                responseData.dump()
+            );
+
+            response.set_header(
+                "Content-Type",
+                "application/json"
+            );
+
+            return response;
+        }
+
+        // ------------------------------------------------
+        // Coupon not found
+        // ------------------------------------------------
+
+        return crow::response(
+            404,
+            R"({"status":"error","message":"Invalid coupon code"})"
+        );
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request data"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to apply coupon"})"
+        );
+    }
+});
+
+// ========================================================
 // ADMIN - ADD FOOD
 // ========================================================
 
@@ -286,7 +1201,26 @@ CROW_ROUTE(app, "/api/admin/foods")
 {
     try
     {
-        json requestData = json::parse(request.body);
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(request, adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
 
         std::string name =
             requestData.value("name", "");
@@ -303,6 +1237,10 @@ CROW_ROUTE(app, "/api/admin/foods")
         double price =
             requestData.value("price", 0.0);
 
+        // ------------------------------------------------
+        // Validate food data
+        // ------------------------------------------------
+
         if (name.empty() ||
             description.empty() ||
             category.empty() ||
@@ -314,7 +1252,13 @@ CROW_ROUTE(app, "/api/admin/foods")
             );
         }
 
-        std::lock_guard<std::mutex> lock(userFileMutex);
+        // ------------------------------------------------
+        // Load and update food file
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
 
         json foods =
             loadJsonFile("data/foods.json");
@@ -325,29 +1269,46 @@ CROW_ROUTE(app, "/api/admin/foods")
         {
             if (food.contains("id"))
             {
-                newId =
-                    std::max(
-                        newId,
-                        food["id"].get<int>() + 1
-                    );
+                newId = std::max(
+                    newId,
+                    food["id"].get<int>() + 1
+                );
             }
         }
 
+        // ------------------------------------------------
+        // Create new food
+        // ------------------------------------------------
+
         json newFood = {
-            {"id", newId},
-            {"name", name},
-            {"description", description},
-            {"price", price},
-            {"category", category},
-            {"image", image}
-        };
+    {"id", newId},
+    {"name", name},
+    {"description", description},
+    {"price", price},
+    {"category", category},
+    {"image", image},
+    {"available", true}
+};
 
         foods.push_back(newFood);
 
-        saveJsonFile(
-            "data/foods.json",
-            foods
-        );
+        // ------------------------------------------------
+        // Save food data
+        // ------------------------------------------------
+
+        if (!saveJsonFile(
+                "data/foods.json",
+                foods))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save food"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
 
         crow::response response(201);
 
@@ -366,11 +1327,18 @@ CROW_ROUTE(app, "/api/admin/foods")
 
         return response;
     }
-    catch (...)
+    catch (const json::parse_error&)
     {
         return crow::response(
             400,
-            R"({"status":"error","message":"Invalid request"})"
+            R"({"status":"error","message":"Invalid JSON request"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Internal server error"})"
         );
     }
 });
@@ -386,16 +1354,46 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
 {
     try
     {
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
         json requestData =
             json::parse(request.body);
 
-        std::lock_guard<std::mutex> lock(userFileMutex);
+        // ------------------------------------------------
+        // Load food data
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
 
         json foods =
             loadJsonFile("data/foods.json");
 
         bool found = false;
         json updatedFood;
+
+        // ------------------------------------------------
+        // Find and update food
+        // ------------------------------------------------
 
         for (auto& food : foods)
         {
@@ -405,23 +1403,40 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
             )
             {
                 if (requestData.contains("name"))
-                    food["name"] = requestData["name"];
+                {
+                    food["name"] =
+                        requestData["name"];
+                }
 
                 if (requestData.contains("description"))
+                {
                     food["description"] =
                         requestData["description"];
+                }
 
                 if (requestData.contains("price"))
+                {
                     food["price"] =
                         requestData["price"];
+                }
 
                 if (requestData.contains("category"))
+                {
                     food["category"] =
                         requestData["category"];
+                }
 
                 if (requestData.contains("image"))
+                {
                     food["image"] =
                         requestData["image"];
+                }
+
+                if (requestData.contains("available"))
+{
+    food["available"] =
+        requestData["available"];
+}
 
                 updatedFood = food;
                 found = true;
@@ -429,6 +1444,10 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
                 break;
             }
         }
+
+        // ------------------------------------------------
+        // Food not found
+        // ------------------------------------------------
 
         if (!found)
         {
@@ -438,10 +1457,23 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
             );
         }
 
-        saveJsonFile(
-            "data/foods.json",
-            foods
-        );
+        // ------------------------------------------------
+        // Save updated food data
+        // ------------------------------------------------
+
+        if (!saveJsonFile(
+                "data/foods.json",
+                foods))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save food"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
 
         crow::response response(200);
 
@@ -471,16 +1503,184 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
 
 
 // ========================================================
+// ADMIN - UPDATE FOOD AVAILABILITY
+// ========================================================
+
+CROW_ROUTE(app, "/api/admin/foods/<int>/availability")
+    .methods("PUT"_method)
+([](const crow::request& request, int foodId)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        if (!requestData.contains("available"))
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Availability value is required"})"
+            );
+        }
+
+        bool available =
+            requestData["available"].get<bool>();
+
+        // ------------------------------------------------
+        // Load foods
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json foods =
+            loadJsonFile("data/foods.json");
+
+        bool found = false;
+        json updatedFood;
+
+        // ------------------------------------------------
+        // Find food
+        // ------------------------------------------------
+
+        for (auto& food : foods)
+        {
+            if (
+                food.contains("id") &&
+                food["id"].get<int>() == foodId
+            )
+            {
+                food["available"] = available;
+
+                updatedFood = food;
+                found = true;
+
+                break;
+            }
+        }
+
+        // ------------------------------------------------
+        // Food not found
+        // ------------------------------------------------
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Food not found"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Save foods
+        // ------------------------------------------------
+
+        if (!saveJsonFile(
+                "data/foods.json",
+                foods))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save food availability"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
+
+        crow::response response(200);
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        response.write(
+            json({
+                {"status", "success"},
+                {
+                    "message",
+                    available
+                        ? "Food marked as available"
+                        : "Food marked as out of stock"
+                },
+                {"food", updatedFood}
+            }).dump()
+        );
+
+        return response;
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid JSON request"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to update food availability"})"
+        );
+    }
+});
+
+// ========================================================
 // ADMIN - DELETE FOOD
 // ========================================================
 
 CROW_ROUTE(app, "/api/admin/foods/<int>")
     .methods("DELETE"_method)
-([](const crow::request&, int foodId)
+([](const crow::request& request, int foodId)
 {
     try
     {
-        std::lock_guard<std::mutex> lock(userFileMutex);
+        // ------------------------------------------------
+        // Admin authentication
+        // ------------------------------------------------
+
+        int adminUserId = 0;
+
+        if (!requireAdmin(
+                request,
+                adminUserId))
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Admin authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load food data
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
 
         json foods =
             loadJsonFile("data/foods.json");
@@ -489,6 +1689,10 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
             json::array();
 
         bool found = false;
+
+        // ------------------------------------------------
+        // Find food and remove it
+        // ------------------------------------------------
 
         for (const auto& food : foods)
         {
@@ -504,6 +1708,10 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
             updatedFoods.push_back(food);
         }
 
+        // ------------------------------------------------
+        // Food not found
+        // ------------------------------------------------
+
         if (!found)
         {
             return crow::response(
@@ -512,10 +1720,23 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
             );
         }
 
-        saveJsonFile(
-            "data/foods.json",
-            updatedFoods
-        );
+        // ------------------------------------------------
+        // Save updated food data
+        // ------------------------------------------------
+
+        if (!saveJsonFile(
+                "data/foods.json",
+                updatedFoods))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save food data"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Success response
+        // ------------------------------------------------
 
         return crow::response(
             200,
@@ -530,7 +1751,6 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
         );
     }
 });
-
 
     // ========================================================
     // REGISTER
@@ -816,6 +2036,793 @@ CROW_ROUTE(app, "/api/admin/foods/<int>")
         }
     });
 
+
+// ========================================================
+// CUSTOMER PROFILE
+// ========================================================
+
+CROW_ROUTE(app, "/api/profile")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ----------------------------------------
+        // Authenticate customer
+        // ----------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        // ----------------------------------------
+        // Only customers
+        // ----------------------------------------
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // ----------------------------------------
+        // Load users
+        // ----------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json users =
+            loadJsonFile(USER_FILE);
+
+        // ----------------------------------------
+        // Find authenticated user
+        // ----------------------------------------
+
+        for (const auto& user : users)
+        {
+            if (
+                user.contains("id") &&
+                user["id"].get<int>() ==
+                    authenticatedUserId
+            )
+            {
+                json profile;
+
+                profile["id"] =
+                    user.value("id", 0);
+
+                profile["name"] =
+                    user.value("name", "");
+
+                profile["email"] =
+                    user.value("email", "");
+
+                profile["phone"] =
+                    user.value("phone", "");
+
+                profile["role"] =
+                    user.value("role", "customer");
+
+                // Never return password/hash
+
+                json responseData;
+
+                responseData["status"] =
+                    "success";
+
+                responseData["profile"] =
+                    profile;
+
+                crow::response response(
+                    responseData.dump()
+                );
+
+                response.set_header(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                return response;
+            }
+        }
+
+        // ----------------------------------------
+        // User not found
+        // ----------------------------------------
+
+        return crow::response(
+            404,
+            R"({"status":"error","message":"User profile not found"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load profile"})"
+        );
+    }
+});
+
+
+// ========================================================
+// UPDATE CUSTOMER PROFILE
+// ========================================================
+
+CROW_ROUTE(app, "/api/profile")
+    .methods("PUT"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ----------------------------------------
+        // Authenticate user
+        // ----------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        // ----------------------------------------
+        // Only customers can update profile
+        // ----------------------------------------
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // ----------------------------------------
+        // Parse request
+        // ----------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        std::string name =
+            requestData.value("name", "");
+
+        std::string phone =
+            requestData.value("phone", "");
+
+        // ----------------------------------------
+        // Validate fields
+        // ----------------------------------------
+
+        if (name.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Name is required"})"
+            );
+        }
+
+        if (phone.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Phone number is required"})"
+            );
+        }
+
+        // ----------------------------------------
+        // Load users
+        // ----------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json users =
+            loadJsonFile(USER_FILE);
+
+        // ----------------------------------------
+        // Find authenticated user
+        // ----------------------------------------
+
+        for (auto& user : users)
+        {
+            if (
+                user.contains("id") &&
+                user["id"].get<int>() ==
+                    authenticatedUserId
+            )
+            {
+                // --------------------------------
+                // Update allowed fields
+                // --------------------------------
+
+                user["name"] = name;
+                user["phone"] = phone;
+
+                // --------------------------------
+                // Save users
+                // --------------------------------
+
+                if (!saveJsonFile(
+                        USER_FILE,
+                        users))
+                {
+                    return crow::response(
+                        500,
+                        R"({"status":"error","message":"Unable to save profile"})"
+                    );
+                }
+
+                // --------------------------------
+                // Response
+                // --------------------------------
+
+                json profile;
+
+                profile["id"] =
+                    user.value("id", 0);
+
+                profile["name"] =
+                    user.value("name", "");
+
+                profile["email"] =
+                    user.value("email", "");
+
+                profile["phone"] =
+                    user.value("phone", "");
+
+                profile["role"] =
+                    user.value("role", "customer");
+
+                json responseData;
+
+                responseData["status"] =
+                    "success";
+
+                responseData["message"] =
+                    "Profile updated successfully";
+
+                responseData["profile"] =
+                    profile;
+
+                crow::response response(
+                    responseData.dump()
+                );
+
+                response.set_header(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                return response;
+            }
+        }
+
+        // ----------------------------------------
+        // User not found
+        // ----------------------------------------
+
+        return crow::response(
+            404,
+            R"({"status":"error","message":"User profile not found"})"
+        );
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid request data"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to update profile"})"
+        );
+    }
+});
+
+
+// ========================================================
+// CUSTOMER ADDRESSES
+// ========================================================
+
+// --------------------------------------------------------
+// GET CUSTOMER ADDRESSES
+// --------------------------------------------------------
+
+CROW_ROUTE(app, "/api/addresses")
+    .methods("GET"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // Authenticate customer
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // Load addresses
+        json addresses =
+            loadJsonFile("data/addresses.json");
+
+        json userAddresses =
+            json::array();
+
+        // Return only this customer's addresses
+        for (const auto& address : addresses)
+        {
+            if (
+                address.contains("userId") &&
+                address["userId"].get<int>() ==
+                    authenticatedUserId
+            )
+            {
+                userAddresses.push_back(address);
+            }
+        }
+
+        json responseData;
+
+        responseData["status"] = "success";
+        responseData["addresses"] = userAddresses;
+
+        crow::response response(
+            200,
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load addresses"})"
+        );
+    }
+});
+
+
+// --------------------------------------------------------
+// ADD CUSTOMER ADDRESS
+// --------------------------------------------------------
+
+CROW_ROUTE(app, "/api/addresses")
+    .methods("POST"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // Authenticate customer
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // Parse request
+        json requestData =
+            json::parse(request.body);
+
+        std::string label =
+            requestData.value("label", "");
+
+        std::string address =
+            requestData.value("address", "");
+
+        // Validate
+        if (label.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Address label is required"})"
+            );
+        }
+
+        if (address.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Address is required"})"
+            );
+        }
+
+        // Protect file access
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        // Load addresses
+        json addresses =
+            loadJsonFile("data/addresses.json");
+
+        // Generate new ID
+        int newId = 1;
+
+        for (const auto& existing : addresses)
+        {
+            if (existing.contains("id"))
+            {
+                newId = std::max(
+                    newId,
+                    existing["id"].get<int>() + 1
+                );
+            }
+        }
+
+        // Create address
+        json newAddress;
+
+        newAddress["id"] =
+            newId;
+
+        newAddress["userId"] =
+            authenticatedUserId;
+
+        newAddress["label"] =
+            label;
+
+        newAddress["address"] =
+            address;
+
+        // Save
+        addresses.push_back(newAddress);
+
+        if (!saveJsonFile(
+                "data/addresses.json",
+                addresses))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save address"})"
+            );
+        }
+
+        // Response
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["message"] =
+            "Address added successfully";
+
+        responseData["address"] =
+            newAddress;
+
+        crow::response response(
+            201,
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid JSON request"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to add address"})"
+        );
+    }
+});
+
+// ========================================================
+// UPDATE CUSTOMER ADDRESS
+// ========================================================
+
+CROW_ROUTE(app, "/api/addresses/<int>")
+    .methods("PUT"_method)
+([](const crow::request& request, int addressId)
+{
+    try
+    {
+        // Authenticate customer
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        // Parse request
+        json requestData =
+            json::parse(request.body);
+
+        std::string label =
+            requestData.value("label", "");
+
+        std::string address =
+            requestData.value("address", "");
+
+        if (label.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Address label is required"})"
+            );
+        }
+
+        if (address.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Address is required"})"
+            );
+        }
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json addresses =
+            loadJsonFile("data/addresses.json");
+
+        bool found = false;
+        json updatedAddress;
+
+        for (auto& existing : addresses)
+        {
+            if (
+                existing.contains("id") &&
+                existing["id"].get<int>() == addressId &&
+                existing.contains("userId") &&
+                existing["userId"].get<int>() ==
+                    authenticatedUserId
+            )
+            {
+                existing["label"] = label;
+                existing["address"] = address;
+
+                updatedAddress = existing;
+                found = true;
+
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Address not found"})"
+            );
+        }
+
+        if (!saveJsonFile(
+                "data/addresses.json",
+                addresses))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save address"})"
+            );
+        }
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["message"] =
+            "Address updated successfully";
+
+        responseData["address"] =
+            updatedAddress;
+
+        crow::response response(
+            200,
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid JSON request"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to update address"})"
+        );
+    }
+});
+
+
+// ========================================================
+// DELETE CUSTOMER ADDRESS
+// ========================================================
+
+CROW_ROUTE(app, "/api/addresses/<int>")
+    .methods("DELETE"_method)
+([](const crow::request& request, int addressId)
+{
+    try
+    {
+        // Authenticate customer
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Customer access required"})"
+            );
+        }
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json addresses =
+            loadJsonFile("data/addresses.json");
+
+        json updatedAddresses =
+            json::array();
+
+        bool found = false;
+
+        for (const auto& existing : addresses)
+        {
+            if (
+                existing.contains("id") &&
+                existing["id"].get<int>() == addressId &&
+                existing.contains("userId") &&
+                existing["userId"].get<int>() ==
+                    authenticatedUserId
+            )
+            {
+                found = true;
+                continue;
+            }
+
+            updatedAddresses.push_back(existing);
+        }
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Address not found"})"
+            );
+        }
+
+        if (!saveJsonFile(
+                "data/addresses.json",
+                updatedAddresses))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to delete address"})"
+            );
+        }
+
+        return crow::response(
+            200,
+            R"({"status":"success","message":"Address deleted successfully"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to delete address"})"
+        );
+    }
+});
+
     // ========================================================
 // CREATE ORDER
 // ========================================================
@@ -877,29 +2884,254 @@ CROW_ROUTE(app, "/api/orders")
         }
 
         // -----------------------------
-        // Calculate total
-        // -----------------------------
+// Check food availability
+// -----------------------------
 
-        double total = 0;
+json foods = loadJsonFile(FOOD_FILE);
 
-        for (const auto& item : items)
+for (const auto& item : items)
+{
+    int foodId =
+        item.value("id", 0);
+
+    if (foodId <= 0)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid food item"})"
+        );
+    }
+
+    bool foodFound = false;
+
+    for (const auto& food : foods)
+    {
+        if (
+            food.contains("id") &&
+            food["id"].get<int>() == foodId
+        )
         {
-            double price =
-                item.value("price", 0.0);
+            foodFound = true;
 
-            int quantity =
-                item.value("quantity", 0);
+            // Older food records are considered available
+            bool available =
+                food.value("available", true);
 
-            if (price < 0 || quantity <= 0)
+            if (!available)
             {
+                std::string foodName =
+                    food.value("name", "Food");
+
+                json errorResponse;
+
+                errorResponse["status"] =
+                    "error";
+
+                errorResponse["message"] =
+                    foodName +
+                    " is currently unavailable";
+
                 return crow::response(
                     400,
-                    R"({"status":"error","message":"Invalid order item"})"
+                    errorResponse.dump()
                 );
             }
 
-            total += price * quantity;
+            break;
         }
+    }
+
+    if (!foodFound)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Food item not found"})"
+        );
+    }
+}
+
+        // -----------------------------
+        // Calculate total
+        // -----------------------------
+
+        // -----------------------------
+// Calculate subtotal
+// -----------------------------
+
+double subtotal = 0;
+
+for (const auto& item : items)
+{
+    double price =
+        item.value("price", 0.0);
+
+    int quantity =
+        item.value("quantity", 0);
+
+    if (price < 0 || quantity <= 0)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid order item"})"
+        );
+    }
+
+    subtotal += price * quantity;
+}
+
+// -----------------------------
+// Apply coupon discount
+// -----------------------------
+
+std::string couponCode =
+    requestData.value("couponCode", "");
+
+double discount = 0.0;
+
+if (!couponCode.empty())
+{
+    // Normalize coupon code
+    for (char& character : couponCode)
+    {
+        character =
+            static_cast<char>(
+                std::toupper(
+                    static_cast<unsigned char>(
+                        character
+                    )
+                )
+            );
+    }
+
+    // Load coupons
+    json coupons =
+        loadJsonFile("data/coupons.json");
+
+    bool couponFound = false;
+
+    for (const auto& coupon : coupons)
+    {
+        std::string storedCode =
+            coupon.value("code", "");
+
+        // Normalize stored code
+        for (char& character : storedCode)
+        {
+            character =
+                static_cast<char>(
+                    std::toupper(
+                        static_cast<unsigned char>(
+                            character
+                        )
+                    )
+                );
+        }
+
+        if (storedCode != couponCode)
+        {
+            continue;
+        }
+
+        couponFound = true;
+
+        // Check active
+        bool active =
+            coupon.value("active", false);
+
+        if (!active)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"This coupon is inactive"})"
+            );
+        }
+
+        // Check minimum order
+        double minimumOrder =
+            coupon.value(
+                "minimumOrder",
+                0.0
+            );
+
+        if (subtotal < minimumOrder)
+        {
+            json errorResponse;
+
+            errorResponse["status"] =
+                "error";
+
+            errorResponse["message"] =
+                "Minimum order value is ₹" +
+                std::to_string(
+                    static_cast<int>(
+                        minimumOrder
+                    )
+                );
+
+            return crow::response(
+                400,
+                errorResponse.dump()
+            );
+        }
+
+        // Get discount configuration
+        std::string discountType =
+            coupon.value(
+                "discountType",
+                "percentage"
+            );
+
+        double discountValue =
+            coupon.value(
+                "discountValue",
+                0.0
+            );
+
+        // Calculate discount
+        if (discountType == "percentage")
+        {
+            discount =
+                subtotal *
+                discountValue /
+                100.0;
+        }
+        else if (discountType == "fixed")
+        {
+            discount =
+                discountValue;
+        }
+        else
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid coupon configuration"})"
+            );
+        }
+
+        // Never discount more than subtotal
+        if (discount > subtotal)
+        {
+            discount = subtotal;
+        }
+
+        break;
+    }
+
+    if (!couponFound)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid coupon code"})"
+        );
+    }
+}
+
+// -----------------------------
+// Final total
+// -----------------------------
+
+double total =
+    subtotal - discount;
 
         // -----------------------------
         // Load existing orders
@@ -931,14 +3163,17 @@ CROW_ROUTE(app, "/api/orders")
             json newOrder;
 
             newOrder["id"] = newOrderId;
-            newOrder["userId"] = userId;
-            newOrder["address"] = address;
-            newOrder["paymentMethod"] = paymentMethod;
-            newOrder["items"] = items;
-            newOrder["total"] = total;
+newOrder["userId"] = userId;
+newOrder["address"] = address;
+newOrder["paymentMethod"] = paymentMethod;
+newOrder["items"] = items;
 
-            // Initial order state
-            newOrder["status"] = "PLACED";
+newOrder["subtotal"] = subtotal;
+newOrder["couponCode"] = couponCode;
+newOrder["discount"] = discount;
+newOrder["total"] = total;
+
+newOrder["status"] = "PLACED";
 
             orders.push_back(newOrder);
 
@@ -1008,6 +3243,28 @@ CROW_ROUTE(app, "/api/orders")
 {
     try
     {
+        // ------------------------------------------------
+        // Authenticate customer
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Get requested userId
+        // ------------------------------------------------
+
         const char* userIdParam =
             request.url_params.get("userId");
 
@@ -1019,8 +3276,24 @@ CROW_ROUTE(app, "/api/orders")
             );
         }
 
-        int userId =
+        int requestedUserId =
             std::stoi(userIdParam);
+
+        // ------------------------------------------------
+        // Prevent users from viewing another user's orders
+        // ------------------------------------------------
+
+        if (requestedUserId != authenticatedUserId)
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"You can only view your own orders"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load orders
+        // ------------------------------------------------
 
         json orders =
             loadJsonFile("data/orders.json");
@@ -1028,19 +3301,37 @@ CROW_ROUTE(app, "/api/orders")
         json userOrders =
             json::array();
 
+        // ------------------------------------------------
+        // Filter orders
+        // ------------------------------------------------
+
         for (const auto& order : orders)
         {
             if (
                 order.contains("userId") &&
-                order["userId"].get<int>() == userId
+                order["userId"].get<int>() ==
+                    authenticatedUserId
             )
             {
                 userOrders.push_back(order);
             }
         }
 
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["orders"] =
+            userOrders;
+
         crow::response response(
-            userOrders.dump()
+            200,
+            responseData.dump()
         );
 
         response.set_header(
@@ -1050,15 +3341,26 @@ CROW_ROUTE(app, "/api/orders")
 
         return response;
     }
-    catch (...)
+    catch (const std::exception& error)
     {
+        std::cerr
+            << "GET customer orders error: "
+            << error.what()
+            << std::endl;
+
         return crow::response(
             400,
             R"({"status":"error","message":"Invalid user ID"})"
         );
     }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load orders"})"
+        );
+    }
 });
-
 
 // ========================================================
 // GET ALL ORDERS FOR ADMIN
@@ -1158,6 +3460,190 @@ CROW_ROUTE(app, "/api/admin/customers")
         return crow::response(
             500,
             R"({"status":"error","message":"Unable to load customers"})"
+        );
+    }
+});
+
+
+// ========================================================
+// CUSTOMER - CANCEL ORDER
+// ========================================================
+
+CROW_ROUTE(app, "/api/orders/<int>/cancel")
+    .methods("PUT"_method)
+([](const crow::request& request, int orderId)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Authenticate customer
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Only customers can cancel their own orders
+        // ------------------------------------------------
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Only customers can cancel orders"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load orders
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json orders =
+            loadJsonFile("data/orders.json");
+
+        // ------------------------------------------------
+        // Find order
+        // ------------------------------------------------
+
+        for (auto& order : orders)
+        {
+            if (
+                order.contains("id") &&
+                order["id"].get<int>() == orderId
+            )
+            {
+                // ----------------------------------------
+                // Make sure order belongs to customer
+                // ----------------------------------------
+
+                if (
+                    !order.contains("userId") ||
+                    order["userId"].get<int>() !=
+                        authenticatedUserId
+                )
+                {
+                    return crow::response(
+                        403,
+                        R"({"status":"error","message":"You can only cancel your own orders"})"
+                    );
+                }
+
+                // ----------------------------------------
+                // Get current status
+                // ----------------------------------------
+
+                std::string currentStatus =
+                    order.value(
+                        "status",
+                        ""
+                    );
+
+                // ----------------------------------------
+                // Check whether cancellation is allowed
+                // ----------------------------------------
+
+                if (
+                    currentStatus != "PLACED" &&
+                    currentStatus != "CONFIRMED"
+                )
+                {
+                    return crow::response(
+                        400,
+                        R"({"status":"error","message":"This order can no longer be cancelled"})"
+                    );
+                }
+
+                // ----------------------------------------
+                // Cancel order
+                // ----------------------------------------
+
+                order["status"] =
+                    "CANCELLED";
+
+                // ------------------------------------------------------------
+// Linux IPC: notify the event logger
+// ------------------------------------------------------------
+
+std::stringstream eventStream;
+
+eventStream
+    << "ORDER_CANCELLED"
+    << " | Order ID: " << orderId
+    << " | User ID: " << authenticatedUserId;
+
+sendOrderEvent(eventStream.str());
+
+                // ----------------------------------------
+                // Save orders
+                // ----------------------------------------
+
+                if (!saveJsonFile(
+                        "data/orders.json",
+                        orders))
+                {
+                    return crow::response(
+                        500,
+                        R"({"status":"error","message":"Unable to save cancelled order"})"
+                    );
+                }
+
+                // ----------------------------------------
+                // Response
+                // ----------------------------------------
+
+                json responseData;
+
+                responseData["status"] =
+                    "success";
+
+                responseData["message"] =
+                    "Order cancelled successfully";
+
+                responseData["order"] =
+                    order;
+
+                crow::response response(
+                    responseData.dump()
+                );
+
+                response.set_header(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                return response;
+            }
+        }
+
+        // ------------------------------------------------
+        // Order not found
+        // ------------------------------------------------
+
+        return crow::response(
+            404,
+            R"({"status":"error","message":"Order not found"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to cancel order"})"
         );
     }
 });
@@ -1268,6 +3754,596 @@ CROW_ROUTE(app, "/api/orders/<int>/status")
         return crow::response(
             400,
             R"({"status":"error","message":"Invalid request"})"
+        );
+    }
+});
+
+
+// ========================================================
+// FOOD REVIEWS & RATINGS
+// ========================================================
+
+// --------------------------------------------------------
+// ADD REVIEW
+// --------------------------------------------------------
+
+CROW_ROUTE(app, "/api/reviews")
+    .methods("POST"_method)
+([](const crow::request& request)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Authenticate customer
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Only customers can submit reviews"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        int foodId =
+            requestData.value("foodId", 0);
+
+        int rating =
+            requestData.value("rating", 0);
+
+        std::string comment =
+            requestData.value("comment", "");
+
+        // ------------------------------------------------
+        // Validate
+        // ------------------------------------------------
+
+        if (foodId <= 0)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Invalid food ID"})"
+            );
+        }
+
+        if (rating < 1 || rating > 5)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Rating must be between 1 and 5"})"
+            );
+        }
+
+        if (comment.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Review comment is required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Verify food exists
+        // ------------------------------------------------
+
+        json foods =
+            loadJsonFile(FOOD_FILE);
+
+        bool foodFound = false;
+
+        for (const auto& food : foods)
+        {
+            if (
+                food.contains("id") &&
+                food["id"].get<int>() == foodId
+            )
+            {
+                foodFound = true;
+                break;
+            }
+        }
+
+        if (!foodFound)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Food not found"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load reviews
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json reviews =
+            loadJsonFile("data/reviews.json");
+
+        // ------------------------------------------------
+        // Prevent duplicate review
+        // ------------------------------------------------
+
+        for (const auto& review : reviews)
+        {
+            if (
+                review.value("userId", 0) ==
+                    authenticatedUserId &&
+                review.value("foodId", 0) ==
+                    foodId
+            )
+            {
+                return crow::response(
+                    409,
+                    R"({"status":"error","message":"You have already reviewed this food"})"
+                );
+            }
+        }
+
+        // ------------------------------------------------
+        // Generate review ID
+        // ------------------------------------------------
+
+        int newReviewId = 1;
+
+        for (const auto& review : reviews)
+        {
+            if (review.contains("id"))
+            {
+                newReviewId = std::max(
+                    newReviewId,
+                    review["id"].get<int>() + 1
+                );
+            }
+        }
+
+        // ------------------------------------------------
+        // Create review
+        // ------------------------------------------------
+
+        json newReview;
+
+        newReview["id"] =
+            newReviewId;
+
+        newReview["userId"] =
+            authenticatedUserId;
+
+        newReview["foodId"] =
+            foodId;
+
+        newReview["rating"] =
+            rating;
+
+        newReview["comment"] =
+            comment;
+
+        // ------------------------------------------------
+        // Save review
+        // ------------------------------------------------
+
+        reviews.push_back(newReview);
+
+        if (!saveJsonFile(
+                "data/reviews.json",
+                reviews))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to save review"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Response
+        // ------------------------------------------------
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["message"] =
+            "Review submitted successfully";
+
+        responseData["review"] =
+            newReview;
+
+        crow::response response(
+            201,
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid JSON request"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to submit review"})"
+        );
+    }
+});
+
+
+// --------------------------------------------------------
+// GET REVIEWS FOR FOOD
+// --------------------------------------------------------
+
+CROW_ROUTE(app, "/api/foods/<int>/reviews")
+    .methods("GET"_method)
+([](int foodId)
+{
+    try
+    {
+        json reviews =
+            loadJsonFile("data/reviews.json");
+
+        json foodReviews =
+            json::array();
+
+        int totalRating = 0;
+
+        for (const auto& review : reviews)
+        {
+            if (
+                review.value("foodId", 0) ==
+                foodId
+            )
+            {
+                foodReviews.push_back(review);
+
+                totalRating +=
+                    review.value("rating", 0);
+            }
+        }
+
+        double averageRating = 0.0;
+
+        if (!foodReviews.empty())
+        {
+            averageRating =
+                static_cast<double>(totalRating) /
+                foodReviews.size();
+        }
+
+        json responseData;
+
+        responseData["status"] =
+            "success";
+
+        responseData["foodId"] =
+            foodId;
+
+        responseData["averageRating"] =
+            averageRating;
+
+        responseData["reviewCount"] =
+            foodReviews.size();
+
+        responseData["reviews"] =
+            foodReviews;
+
+        crow::response response(
+            200,
+            responseData.dump()
+        );
+
+        response.set_header(
+            "Content-Type",
+            "application/json"
+        );
+
+        return response;
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to load reviews"})"
+        );
+    }
+});
+
+
+// --------------------------------------------------------
+// UPDATE REVIEW
+// --------------------------------------------------------
+
+CROW_ROUTE(app, "/api/reviews/<int>")
+    .methods("PUT"_method)
+([](const crow::request& request, int reviewId)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Authenticate customer
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Only customers can update reviews"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Parse request
+        // ------------------------------------------------
+
+        json requestData =
+            json::parse(request.body);
+
+        int rating =
+            requestData.value("rating", 0);
+
+        std::string comment =
+            requestData.value("comment", "");
+
+        if (rating < 1 || rating > 5)
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Rating must be between 1 and 5"})"
+            );
+        }
+
+        if (comment.empty())
+        {
+            return crow::response(
+                400,
+                R"({"status":"error","message":"Review comment is required"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load reviews
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json reviews =
+            loadJsonFile("data/reviews.json");
+
+        for (auto& review : reviews)
+        {
+            if (
+                review.value("id", 0) ==
+                    reviewId
+            )
+            {
+                // Only owner can update
+                if (
+                    review.value("userId", 0) !=
+                    authenticatedUserId
+                )
+                {
+                    return crow::response(
+                        403,
+                        R"({"status":"error","message":"You can only update your own review"})"
+                    );
+                }
+
+                review["rating"] =
+                    rating;
+
+                review["comment"] =
+                    comment;
+
+                if (!saveJsonFile(
+                        "data/reviews.json",
+                        reviews))
+                {
+                    return crow::response(
+                        500,
+                        R"({"status":"error","message":"Unable to save review"})"
+                    );
+                }
+
+                json responseData;
+
+                responseData["status"] =
+                    "success";
+
+                responseData["message"] =
+                    "Review updated successfully";
+
+                responseData["review"] =
+                    review;
+
+                crow::response response(
+                    200,
+                    responseData.dump()
+                );
+
+                response.set_header(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                return response;
+            }
+        }
+
+        return crow::response(
+            404,
+            R"({"status":"error","message":"Review not found"})"
+        );
+    }
+    catch (const json::parse_error&)
+    {
+        return crow::response(
+            400,
+            R"({"status":"error","message":"Invalid JSON request"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to update review"})"
+        );
+    }
+});
+
+
+// --------------------------------------------------------
+// DELETE REVIEW
+// --------------------------------------------------------
+
+CROW_ROUTE(app, "/api/reviews/<int>")
+    .methods("DELETE"_method)
+([](const crow::request& request, int reviewId)
+{
+    try
+    {
+        // ------------------------------------------------
+        // Authenticate customer
+        // ------------------------------------------------
+
+        int authenticatedUserId = 0;
+        std::string role;
+
+        if (!authenticateRequest(
+                request,
+                authenticatedUserId,
+                role))
+        {
+            return crow::response(
+                401,
+                R"({"status":"error","message":"Authentication required"})"
+            );
+        }
+
+        if (role != "customer")
+        {
+            return crow::response(
+                403,
+                R"({"status":"error","message":"Only customers can delete reviews"})"
+            );
+        }
+
+        // ------------------------------------------------
+        // Load reviews
+        // ------------------------------------------------
+
+        std::lock_guard<std::mutex> lock(
+            userFileMutex
+        );
+
+        json reviews =
+            loadJsonFile("data/reviews.json");
+
+        json updatedReviews =
+            json::array();
+
+        bool found = false;
+
+        for (const auto& review : reviews)
+        {
+            if (
+                review.value("id", 0) ==
+                reviewId
+            )
+            {
+                if (
+                    review.value("userId", 0) !=
+                    authenticatedUserId
+                )
+                {
+                    return crow::response(
+                        403,
+                        R"({"status":"error","message":"You can only delete your own review"})"
+                    );
+                }
+
+                found = true;
+                continue;
+            }
+
+            updatedReviews.push_back(review);
+        }
+
+        if (!found)
+        {
+            return crow::response(
+                404,
+                R"({"status":"error","message":"Review not found"})"
+            );
+        }
+
+        if (!saveJsonFile(
+                "data/reviews.json",
+                updatedReviews))
+        {
+            return crow::response(
+                500,
+                R"({"status":"error","message":"Unable to delete review"})"
+            );
+        }
+
+        return crow::response(
+            200,
+            R"({"status":"success","message":"Review deleted successfully"})"
+        );
+    }
+    catch (...)
+    {
+        return crow::response(
+            500,
+            R"({"status":"error","message":"Unable to delete review"})"
         );
     }
 });

@@ -14,35 +14,101 @@ function Orders({ currentUser }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
-  const loadOrders = async () => {
-    if (!currentUser) {
-      setOrders([])
-      setLoading(false)
+const loadOrders = async () => {
+  if (!currentUser) {
+    setOrders([])
+    setLoading(false)
+    return
+  }
+
+  try {
+    setLoading(true)
+    setError("")
+
+    const token = localStorage.getItem("authToken")
+
+    if (!token) {
+      throw new Error("Authentication required. Please login again.")
+    }
+
+    const response = await fetch(
+      `http://localhost:18080/api/orders?userId=${currentUser.id}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "Failed to load orders"
+      )
+    }
+
+    // Backend returns:
+    // {
+    //   "orders": [...],
+    //   "status": "success"
+    // }
+
+    setOrders(data.orders || [])
+  } catch (error) {
+    console.error("Failed to load orders:", error)
+    setError(error.message)
+    setOrders([])
+  } finally {
+    setLoading(false)
+  }
+}
+
+  const handleCancelOrder = async (orderId) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to cancel this order?"
+    )
+
+    if (!confirmed) {
       return
     }
 
     try {
-      setLoading(true)
-      setError("")
+      const token = localStorage.getItem("authToken")
+
+      if (!token) {
+        throw new Error(
+          "Authentication required. Please login again."
+        )
+      }
 
       const response = await fetch(
-        `http://localhost:18080/api/orders?userId=${currentUser.id}`
+        `http://localhost:18080/api/orders/${orderId}/cancel`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
       )
 
       const data = await response.json()
 
       if (!response.ok) {
         throw new Error(
-          data.message || "Failed to load orders"
+          data.message || "Failed to cancel order"
         )
       }
 
-      setOrders(data)
+      await loadOrders()
+
+      alert("Order cancelled successfully.")
     } catch (error) {
-      console.error("Failed to load orders:", error)
-      setError(error.message)
-    } finally {
-      setLoading(false)
+      console.error("Failed to cancel order:", error)
+      alert(error.message)
     }
   }
 
@@ -238,6 +304,29 @@ function Orders({ currentUser }) {
                     </div>
 
                   </div>
+
+
+                  {/* Cancel Order */}
+
+                  {(order.status === "PLACED" ||
+                    order.status === "CONFIRMED") && (
+                    <div className="border-t pt-5">
+
+                      <button
+                        onClick={() =>
+                          handleCancelOrder(order.id)
+                        }
+                        className="bg-red-600 text-white
+                                   px-5 py-2 rounded-lg
+                                   font-semibold
+                                   hover:bg-red-700"
+                      >
+                        Cancel Order
+                      </button>
+
+                    </div>
+                  )}
+
 
 
                   {/* Tracking */}

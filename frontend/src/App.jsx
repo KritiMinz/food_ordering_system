@@ -7,6 +7,7 @@ import AuthModal from "./components/AuthModal"
 import Checkout from "./components/Checkout"
 import Orders from "./components/Orders"
 import AdminDashboard from "./components/AdminDashboard"
+import Profile from "./components/Profile"
 
 const categories = [
   "All",
@@ -52,6 +53,8 @@ function App() {
   // Successfully placed order
   const [orderSuccess, setOrderSuccess] = useState(null)
 
+  const [showProfile, setShowProfile] = useState(false)
+  
 
   // ==============================
   // LOAD FOOD FROM C++ BACKEND
@@ -82,14 +85,14 @@ function App() {
   // ==============================
 
   const handlePlaceOrder = (order) => {
-    setOrderSuccess(order)
+  setOrderSuccess(order)
 
-    // Empty cart after successful order
-    setCart([])
+  setCart([])
 
-    // Close checkout
-    setShowCheckout(false)
-  }
+  localStorage.removeItem("selectedAddress")
+
+  setShowCheckout(false)
+}
 
 
   // ==============================
@@ -234,11 +237,13 @@ function App() {
       ============================== */}
 
       <Navbar
-        cartItemCount={cartItemCount}
-        onLogin={() => setAuthMode("login")}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-      />
+cartItemCount={cartItemCount}
+onLogin={() => setAuthMode("login")}
+currentUser={currentUser}
+onLogout={handleLogout}
+onProfile={() => setShowProfile(true)}
+/>
+
 
       {currentUser?.role === "admin" ? (
   <AdminDashboard
@@ -249,45 +254,45 @@ function App() {
 
   <>
 
+{/* ==============================
+    HERO
+============================== */}
 
-      {/* ==============================
-          HERO
-      ============================== */}
+<section
+  id="home"
+  className="bg-orange-50 py-20"
+>
 
-      <section className="bg-orange-50 py-20">
+  <div className="max-w-7xl mx-auto px-6 text-center">
 
-        <div className="max-w-7xl mx-auto px-6 text-center">
+    <h1 className="text-5xl font-bold text-gray-800 mb-6">
+      Delicious Food, Delivered Fast
+    </h1>
 
-          <h1 className="text-5xl font-bold text-gray-800 mb-6">
-            Delicious Food, Delivered Fast
-          </h1>
+    <p className="text-lg text-gray-600 mb-8">
+      Order your favourite food from the comfort of your home.
+    </p>
 
-          <p className="text-lg text-gray-600 mb-8">
-            Order your favourite food from the comfort of your home.
-          </p>
+    {/* SEARCH */}
 
+    <div className="max-w-xl mx-auto">
 
-          {/* SEARCH */}
+      <input
+        type="text"
+        value={searchTerm}
+        onChange={(event) =>
+          setSearchTerm(event.target.value)
+        }
+        placeholder="Search for food..."
+        className="w-full px-5 py-4 rounded-xl border border-gray-300
+                   focus:outline-none focus:ring-2 focus:ring-orange-500"
+      />
 
-          <div className="max-w-xl mx-auto">
+    </div>
 
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(event) =>
-                setSearchTerm(event.target.value)
-              }
-              placeholder="Search for food..."
-              className="w-full px-5 py-4 rounded-xl border border-gray-300
-                         focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
+  </div>
 
-          </div>
-
-        </div>
-
-      </section>
-
+</section>
 
       {/* ==============================
           CATEGORIES
@@ -328,7 +333,10 @@ function App() {
           FOOD MENU
       ============================== */}
 
-      <section className="max-w-7xl mx-auto px-6 pb-16">
+      <section
+  id="menu"
+  className="max-w-7xl mx-auto px-6 pb-16"
+>
 
         <h2 className="text-3xl font-bold text-gray-800 mb-8">
           Popular Food
@@ -403,7 +411,10 @@ function App() {
           CART
       ============================== */}
 
-      <section className="max-w-4xl mx-auto px-6 pb-20">
+      <section
+  id="cart"
+  className="max-w-4xl mx-auto px-6 pb-20"
+>
 
         <Cart
           cart={cart}
@@ -429,11 +440,23 @@ function App() {
     MY ORDERS
 ============================== */}
 
-<Orders
-  currentUser={currentUser}
-/>
+<section id="orders">
+  <Orders
+    currentUser={currentUser}
+  />
+</section>
 
-
+{showProfile && (
+  <Profile
+    currentUser={currentUser}
+    onClose={() => setShowProfile(false)}
+    onSelectAddress={(address) => {
+  localStorage.setItem("selectedAddress", address)
+  setShowProfile(false)
+  setShowCheckout(true)
+}}
+  />
+)}
       {/* ==============================
           FOOD DETAILS
       ============================== */}
@@ -566,8 +589,8 @@ function App() {
       {showCheckout && (
 
         <Checkout
-          cart={cart}
-          currentUser={currentUser}
+  cart={cart}
+  currentUser={currentUser}
 
           onClose={() =>
             setShowCheckout(false)

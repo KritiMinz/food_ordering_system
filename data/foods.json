@@ -1,5 +1,6 @@
 [
     {
+        "available": false,
         "category": "Burger",
         "description": "Delicious chicken burger with fresh ingredients.",
         "id": 1,
