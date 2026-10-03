@@ -1,6 +1,6 @@
 [
     {
-        "active": true,
+        "active": false,
         "code": "WELCOME10",
         "discountType": "percentage",
         "discountValue": 10.0,

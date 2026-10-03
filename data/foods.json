@@ -1,6 +1,6 @@
 [
     {
-        "available": false,
+        "available": true,
         "category": "Burger",
         "description": "Delicious chicken burger with fresh ingredients.",
         "id": 1,
@@ -33,6 +33,7 @@
         "price": 80
     },
     {
+        "available": false,
         "category": "Drinks",
         "description": "Refreshing cold coffee prepared with milk.",
         "id": 5,

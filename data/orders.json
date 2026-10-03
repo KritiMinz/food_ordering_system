@@ -23,6 +23,7 @@
     },
     {
         "address": "Bhubaneswar, Odisha",
+        "earningsRecorded": true,
         "id": 2,
         "items": [
             {
@@ -39,7 +40,8 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
-        "status": "READY",
+        "paymentStatus": "PAID",
+        "status": "DELIVERED",
         "total": 320.0,
         "userId": 1
     },
@@ -148,6 +150,7 @@
         "address": "Patia, Bhubaneswar, Odisha",
         "couponCode": "WELCOME10",
         "discount": 26.0,
+        "earningsRecorded": true,
         "id": 8,
         "items": [
             {
@@ -164,7 +167,8 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
-        "status": "PLACED",
+        "paymentStatus": "PAID",
+        "status": "DELIVERED",
         "subtotal": 260.0,
         "total": 234.0,
         "userId": 1
@@ -173,6 +177,7 @@
         "address": "Khandagiri, Odisha",
         "couponCode": "WELCOME10",
         "discount": 26.0,
+        "earningsRecorded": true,
         "id": 9,
         "items": [
             {
@@ -189,7 +194,8 @@
             }
         ],
         "paymentMethod": "Cash on Delivery",
-        "status": "PLACED",
+        "paymentStatus": "PAID",
+        "status": "DELIVERED",
         "subtotal": 260.0,
         "total": 234.0,
         "userId": 1
@@ -311,6 +317,65 @@
         "status": "CANCELLED",
         "subtotal": 480.0,
         "total": 480.0,
+        "userId": 3
+    },
+    {
+        "address": "BHUBANESWAR",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 15,
+        "items": [
+            {
+                "id": 5,
+                "name": "Cold Coffee",
+                "price": 70,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Card",
+        "status": "PLACED",
+        "subtotal": 70.0,
+        "total": 70.0,
+        "userId": 3
+    },
+    {
+        "address": "BBSR",
+        "couponCode": "",
+        "discount": 0.0,
+        "id": 16,
+        "items": [
+            {
+                "id": 3,
+                "name": "Italian Pasta",
+                "price": 150,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "UPI",
+        "status": "PLACED",
+        "subtotal": 150.0,
+        "total": 150.0,
+        "userId": 3
+    },
+    {
+        "address": "BBSR",
+        "couponCode": "",
+        "discount": 0.0,
+        "earningsRecorded": true,
+        "id": 17,
+        "items": [
+            {
+                "id": 5,
+                "name": "Cold Coffee",
+                "price": 70,
+                "quantity": 1
+            }
+        ],
+        "paymentMethod": "Card",
+        "paymentStatus": "PAID",
+        "status": "PLACED",
+        "subtotal": 70.0,
+        "total": 70.0,
         "userId": 3
     }
 ]
